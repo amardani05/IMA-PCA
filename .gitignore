@@ -1,0 +1,32 @@
+# Secrets
+.env
+.env.local
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Cached pipeline data
+data/*.parquet
+data/*.csv
+data/*.json
+data/macro/
+!data/sp600_fallback.csv
+
+# Generated outputs
+output/
+webapp/public/data/
+webapp/public/charts/
+webapp/public/interactive/
+webapp/public/meta.json
+webapp/dist/
+webapp/node_modules/
+
+# IDE
+.idea/
+.vscode/
+.DS_Store
+.env
