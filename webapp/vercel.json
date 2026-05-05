@@ -1,0 +1,16 @@
+{
+    "buildCommand": "npm install && npm run build",
+    "outputDirectory": "dist",
+    "framework": "vite",
+    "rewrites": [
+      { "source": "/((?!data/|assets/|charts/|interactive/|.*\\.).*)", "destination": "/index.html" }
+    ],
+  "headers": [
+    {
+      "source": "/pitches/(.*)",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=300" }
+      ]
+    }
+  ]
+}
