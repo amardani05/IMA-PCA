@@ -1,0 +1,105 @@
+{
+  "ticker": "MYRG",
+  "company_name": "MYR Group, Inc.",
+  "sector": "Industrials",
+  "industry": "Construction & Engineering",
+  "market_cap": 0.0,
+  "nearest_neighbors": [
+    {
+      "ticker": "DIOD",
+      "distance": 1.2001676949479112,
+      "is_held": false,
+      "is_former_hold": false,
+      "company": "Diodes Incorporated",
+      "sector": "Information Technology"
+    },
+    {
+      "ticker": "BHE",
+      "distance": 1.220066746899987,
+      "is_held": false,
+      "is_former_hold": false,
+      "company": "Benchmark Electronics, Inc.",
+      "sector": "Information Technology"
+    },
+    {
+      "ticker": "EXTR",
+      "distance": 1.282022085141252,
+      "is_held": false,
+      "is_former_hold": false,
+      "company": "Extreme Networks, Inc.",
+      "sector": "Information Technology"
+    },
+    {
+      "ticker": "ADEA",
+      "distance": 1.3173401261856588,
+      "is_held": false,
+      "is_former_hold": false,
+      "company": "Adeia, Inc.",
+      "sector": "Information Technology"
+    },
+    {
+      "ticker": "PENG",
+      "distance": 1.5801663790579665,
+      "is_held": false,
+      "is_former_hold": false,
+      "company": "Penguin Solutions, Inc.",
+      "sector": "Information Technology"
+    }
+  ],
+  "n_neighbors_currently_held": 0,
+  "n_neighbors_formerly_held": 0,
+  "similarity_verdict": "differentiated from current portfolio",
+  "portfolio_centroid": {
+    "PC1": 0.49419941439136494,
+    "PC2": 0.9114484344915998,
+    "PC3": 0.07773519058802462,
+    "PC4": 0.2201282718789401
+  },
+  "candidate_position": {
+    "PC1": 1.5641263097369502,
+    "PC2": 2.0560989701441583,
+    "PC3": 2.1254206734755954,
+    "PC4": 0.26422993019279034
+  },
+  "deviations_from_centroid": {
+    "PC1": 0.6394984876574322,
+    "PC2": 0.8145009113206391,
+    "PC3": 1.5827390902996394,
+    "PC4": 0.03571055452990008
+  },
+  "significant_deviations": [
+    "PC3 (Market Sentiment): 1.6\u03c3 above portfolio mean"
+  ],
+  "diversification_score": 38.40561304759513,
+  "cluster_id": 1,
+  "cluster_tier": "Moderate",
+  "composite_risk_score": 48.226734053677234,
+  "top_risk_drivers": [
+    {
+      "feature": "ev_to_ebitda",
+      "percentile": 82.6158940397351
+    },
+    {
+      "feature": "pe_ratio",
+      "percentile": 82.6158940397351
+    },
+    {
+      "feature": "volatility_60d",
+      "percentile": 80.79470198675497
+    }
+  ],
+  "cluster_trajectory": "Unknown",
+  "sector_median_score": 49.451028232833735,
+  "delta_vs_sector": -1.2242941791565016,
+  "sector_comparison": "safer than sector (-1.2)",
+  "summary_bullets": [
+    "Nearest neighbors in S&P 600: DIOD, BHE, EXTR. None currently held \u2014 adds genuinely new statistical exposure.",
+    "Deviation from portfolio centroid: PC3 (Market Sentiment): 1.6\u03c3 above portfolio mean",
+    "Torpedo screener: Moderate (score 48/100) \u2014 no elevated statistical risk signals",
+    "Sector: Industrials, safer than sector (-1.2)"
+  ],
+  "recommendation": "PROCEED",
+  "recommendation_rationale": "No statistical red flags. Standard fundamental due diligence applies.",
+  "generated_at": "2026-05-03T18:36:37.695189+00:00",
+  "n_neighbors": 5
+}

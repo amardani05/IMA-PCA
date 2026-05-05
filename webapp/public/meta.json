@@ -1,0 +1,52 @@
+{
+  "generated_at": "2026-05-05T04:47:00.548710Z",
+  "universe_size": 605,
+  "n_portfolio": 20,
+  "financials_count": 162,
+  "n_features": 16,
+  "benchmark": "IJR",
+  "pca": {
+    "n_components": 4,
+    "variance_explained": [
+      0.17416004428219242,
+      0.12138722074248738,
+      0.10307668397391534,
+      0.09342194967762296
+    ],
+    "cumulative_variance": [
+      0.17416004428219242,
+      0.2955472650246798,
+      0.39862394899859516,
+      0.4920458986762181
+    ],
+    "pc_labels": {
+      "PC1": "Market Sentiment",
+      "PC2": "Financial Health",
+      "PC3": "Market Sentiment",
+      "PC4": "Financial Health"
+    }
+  },
+  "clustering": {
+    "k": 3,
+    "silhouette": 0.34271357467007035,
+    "tier_labels": {
+      "1": "Stable",
+      "2": "Mainstream",
+      "0": "Elevated"
+    }
+  },
+  "tier_order": [
+    "Stable",
+    "Mainstream",
+    "Elevated"
+  ],
+  "tier_colors": {
+    "Stable": "#2c7a4b",
+    "Mainstream": "#d4a017",
+    "Elevated": "#b3001b",
+    "Low Risk": "#2c7a4b",
+    "Moderate": "#7fb069",
+    "High": "#e57a44",
+    "Critical": "#b3001b"
+  }
+}

@@ -1,6 +1,8 @@
-# Secrets
+## Secrets
 .env
 .env.local
+.env*.local
+.vercel
 
 # Python
 __pycache__/
@@ -9,26 +11,29 @@ __pycache__/
 .venv/
 venv/
 
-# Cached pipeline data
-data/*.parquet
-data/*.csv
-data/*.json
-data/macro/
+# Cached pipeline data (root-level cache)
+/data/*.parquet
+/data/*.csv
+/data/*.json
+/data/macro/
 !data/sp600_fallback.csv
 
-# Generated outputs
+# Generated outputs (root-level)
 output/
-webapp/public/data/
-webapp/public/charts/
-webapp/public/interactive/
-webapp/public/meta.json
-webapp/dist/
+
+# Webapp build artifacts — NEVER commit these
 webapp/node_modules/
+webapp/dist/
+webapp/.env
+webapp/.env.local
+
+# Allow pipeline-generated data into git (these populate the deployed site)
+!webapp/public/data/
+!webapp/public/charts/
+!webapp/public/interactive/
+!webapp/public/meta.json
 
 # IDE
 .idea/
 .vscode/
 .DS_Store
-.env
-.vercel
-.env*.local
