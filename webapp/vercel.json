@@ -1,13 +1,13 @@
 {
-    "buildCommand": "npm install && npm run build",
-    "outputDirectory": "dist",
-    "framework": "vite",
-    "rewrites": [
-      { "source": "/((?!data/|assets/|charts/|interactive/|.*\\.).*)", "destination": "/index.html" }
-    ],
+  "buildCommand": "npm install && npm run build",
+  "outputDirectory": "dist",
+  "framework": "vite",
+  "rewrites": [
+    { "source": "/((?!data/|assets/|charts/|interactive/|.*\\.).*)", "destination": "/index.html" }
+  ],
   "headers": [
     {
-      "source": "/pitches/(.*)",
+      "source": "/data/(.*)",
       "headers": [
         { "key": "Cache-Control", "value": "public, max-age=300" }
       ]
