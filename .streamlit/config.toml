@@ -1,0 +1,17 @@
+# Pin the Streamlit dashboard to the IMA brand palette so it matches the
+# React webapp visually. Colors here mirror the CSS variables in
+# webapp/src/styles.css.
+
+[theme]
+base = "light"
+primaryColor = "#1f3b73"            # accent / nav
+backgroundColor = "#f7f8fa"         # page bg (--bg)
+secondaryBackgroundColor = "#ffffff" # card / sidebar (--surface)
+textColor = "#1a202c"               # --text
+font = "sans serif"
+
+[browser]
+gatherUsageStats = false
+
+[server]
+headless = false
