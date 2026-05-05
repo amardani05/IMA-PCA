@@ -53,7 +53,7 @@ export default function App() {
   if (err) {
     return (
       <div className="app">
-        <div className="top-bar"><h1>IMA Principle Component Analysis</h1></div>
+        <div className="top-bar"><h1>IMA Principal Component Analysis</h1></div>
         <div className="content">
           <div className="card error">
             <strong>Failed to load pipeline data.</strong>
@@ -72,7 +72,7 @@ export default function App() {
   if (!data) {
     return (
       <div className="app">
-        <div className="top-bar"><h1>IMA Principle Component Analysis</h1></div>
+        <div className="top-bar"><h1>IMA Principal Component Analysis</h1></div>
         <div className="loading">Loading pipeline data…</div>
       </div>
     );
@@ -81,7 +81,7 @@ export default function App() {
   return (
     <div className="app">
       <div className="top-bar">
-        <h1>IMA Principle Component Analysis</h1>
+        <h1>IMA Principal Component Analysis</h1>
         <span className="sub">
           {data.meta.universe_size} S&amp;P 600 stocks ·
           k={data.meta.clustering.k} · silhouette {data.meta.clustering.silhouette.toFixed(3)} ·
