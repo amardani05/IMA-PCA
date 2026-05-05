@@ -8,8 +8,8 @@
 requirements.txt
 pyproject.toml
 poetry.lock
-data/
-output/
+/data/
+/output/
 .venv/
 venv/
 __pycache__/
