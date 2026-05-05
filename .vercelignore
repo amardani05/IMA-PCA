@@ -1,0 +1,44 @@
+# Files Vercel should completely ignore during deployment.
+# The Python pipeline runs locally; Vercel only builds the React frontend
+# from webapp/. Excluding everything else cuts deploy time from 7+ min to
+# under 60s by skipping Vercel's auto-detection of Python/serverless.
+
+# Python — entire pipeline runs locally
+*.py
+requirements.txt
+pyproject.toml
+poetry.lock
+data/
+output/
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+# Streamlit dashboard (also Python, also runs locally)
+.streamlit/
+pages/
+streamlit_app.py
+streamlit_lib.py
+
+# Diagnostic + reference modules
+diagnostics/
+docs/
+
+# Markdown / docs (keep webapp/README.md if it exists)
+*.md
+!webapp/README.md
+
+# Notebooks
+*.ipynb
+.ipynb_checkpoints/
+
+# Drafts (already in .gitignore but reinforce here)
+webapp/public/pitches/_drafts/
+
+# Editor / OS noise
+.idea/
+.vscode/
+.DS_Store
+.env
+.env.example

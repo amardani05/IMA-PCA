@@ -1,0 +1,18 @@
+{
+  "buildCommand": "cd webapp && npm install && npm run build",
+  "outputDirectory": "webapp/dist",
+  "installCommand": "echo 'Skipping root install — webapp installs its own deps'",
+  "framework": null,
+  "ignoreCommand": "git diff --quiet HEAD^ HEAD -- webapp/ webapp/public/pitches/",
+  "rewrites": [
+    { "source": "/((?!pitches/).*)", "destination": "/index.html" }
+  ],
+  "headers": [
+    {
+      "source": "/pitches/(.*)",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=300" }
+      ]
+    }
+  ]
+}
