@@ -1,1 +1,1 @@
-{"generated_at":"2026-05-05T04:47:00.525851Z","methodology":"residualized_v2","frequency":"daily","market_beta":0.9812148671577982,"n_factors_curated":7,"n_obs":276,"r_squared":0.8703634467333857,"alpha_annualized":0.28140892104273324,"max_vif":2.950740623720712}
+{"generated_at":"2026-06-25T01:19:51.894009Z","methodology":"residualized_v2","frequency":"daily","market_beta":1.0013774599173308,"n_factors_curated":7,"n_obs":280,"r_squared":0.8056128660435651,"alpha_annualized":0.3624948561304759,"max_vif":2.0950199583187628}
