@@ -55,7 +55,10 @@ if "$PY" main.py >> "$LOG" 2>&1; then
   else
     echo "no data changes to commit" >> "$LOG"
   fi
-  cd "$REPO/webapp" || exit 1
+  # Deploy from the repo root: the Vercel project's Root Directory setting is
+  # "webapp", so the CLI must upload the repo root (deploying from inside
+  # webapp/ fails with "Root Directory does not exist").
+  cd "$REPO" || exit 1
   if "$VERCEL" --prod --yes >> "$LOG" 2>&1; then
     echo "=== DEPLOYED OK $(date) ===" >> "$LOG"
   else
