@@ -1,4 +1,4 @@
-"""Committee-presentable charts for the torpedo screener.
+"""Committee-presentable charts for the risk screener.
 
 All charts are saved as PNGs to ``output/``. Style is kept clean and
 professional: neutral backgrounds, readable fonts, ticker labels on IMA
@@ -28,25 +28,23 @@ plt.rcParams["font.family"] = "DejaVu Sans"
 plt.rcParams["axes.titlesize"] = 14
 plt.rcParams["axes.labelsize"] = 11
 
-# Tier color palette — three-tier vocabulary, stoplight ordering.
-# Mainstream needed a different hue from Stable: with 70% of the universe
-# in Mainstream, a near-green color visually melted into Stable on the
-# scatter and the colored portfolio overlay disappeared. Amber is the
-# unambiguous middle.
-TIER_COLORS = {
-    "Stable":     "#2c7a4b",   # deep green
-    "Mainstream": "#d4a017",   # amber/gold
-    "Elevated":   "#b3001b",   # deep red
-    # Legacy 5-tier fallbacks:
-    "Low Risk":   "#2c7a4b",
-    "Moderate":   "#7fb069",
-    "High":       "#e57a44",
-    "Critical":   "#b3001b",
+# Two color domains, deliberately distinct so they never get conflated:
+#   - RISK tiers (score-percentile buckets) keep a stoplight green/slate/red.
+#   - Cluster STYLES are colored from cluster_result.style_colors (a neutral
+#     rank-ordered palette from config.CLUSTER_STYLE_PALETTE).
+RISK_TIER_COLORS = {
+    "Low Risk": "#2c7a4b",   # deep green
+    "In Line":  "#64748b",   # neutral slate — mid tier is not a warning
+    "Elevated": "#b3001b",   # deep red
 }
 
 
-def _tier_color(tier: str) -> str:
-    return TIER_COLORS.get(tier, "#666666")
+def _risk_tier_color(tier: str) -> str:
+    return RISK_TIER_COLORS.get(tier, "#666666")
+
+
+def _style_color(cluster_result, style: str) -> str:
+    return getattr(cluster_result, "style_colors", {}).get(style, "#666666")
 
 
 # =============================================================================
@@ -65,7 +63,7 @@ def plot_cluster_scatter_3d(
 ) -> None:
     """3D PCA scatter over PC1/PC2/PC3, with IMA trajectories overlaid.
 
-    - Universe points colored by cluster tier, semi-transparent.
+    - Universe points colored by cluster style, semi-transparent.
     - Cluster centroids marked with a large black 'X'.
     - Portfolio holdings highlighted with ring markers + text labels.
     - If ``trajectory`` is provided, each holding's quarterly path is drawn
@@ -79,13 +77,13 @@ def plot_cluster_scatter_3d(
     ax = fig.add_subplot(111, projection="3d")
 
     assignments = cluster_result.assignments
-    tier_labels = cluster_result.tier_labels
+    style_labels = cluster_result.style_labels
     handles = []
 
     for cid in sorted(assignments.unique()):
         mask = assignments == cid
-        tier = tier_labels[int(cid)]
-        color = _tier_color(tier)
+        style = style_labels[int(cid)]
+        color = _style_color(cluster_result, style)
         ax.scatter(
             scores.loc[mask, "PC1"],
             scores.loc[mask, "PC2"],
@@ -95,7 +93,7 @@ def plot_cluster_scatter_3d(
         )
         handles.append(Line2D([0], [0], marker="o", color="w",
                               markerfacecolor=color, markersize=9,
-                              label=f"C{cid} · {tier} (n={int(mask.sum())})"))
+                              label=f"C{cid} · {style} (n={int(mask.sum())})"))
 
     # Centroids
     centroids = cluster_result.centroids
@@ -117,8 +115,7 @@ def plot_cluster_scatter_3d(
 
     # Trajectories
     if trajectory is not None:
-        risk_rank = {cid: config.TIER_LABELS.index(tier_labels[cid])
-                     for cid in tier_labels}
+        risk_rank = cluster_result.risk_rank
         for tk in portfolio_tickers:
             path = trajectory.pc_paths.get(tk)
             if path is None:
@@ -168,17 +165,17 @@ def plot_cluster_scatter(
     portfolio_tickers: list[str],
     outfile: str,
 ) -> None:
-    """PC scatter colored by cluster tier."""
+    """PC scatter colored by cluster style."""
     fig, ax = plt.subplots(figsize=(11, 8))
 
     assignments = cluster_result.assignments
-    tier_labels = cluster_result.tier_labels
+    style_labels = cluster_result.style_labels
 
     handles = []
     for cid in sorted(assignments.unique()):
         mask = assignments == cid
-        tier = tier_labels[int(cid)]
-        color = _tier_color(tier)
+        style = style_labels[int(cid)]
+        color = _style_color(cluster_result, style)
         ax.scatter(
             scores.loc[mask, pc_x],
             scores.loc[mask, pc_y],
@@ -189,7 +186,7 @@ def plot_cluster_scatter(
         )
         handles.append(Line2D([0], [0], marker="o", color="w",
                               markerfacecolor=color, markersize=9,
-                              label=f"C{cid} · {tier} (n={int(mask.sum())})"))
+                              label=f"C{cid} · {style} (n={int(mask.sum())})"))
 
     centroids = cluster_result.centroids
     comps = list(scores.columns)
@@ -243,9 +240,7 @@ def plot_trajectory_map(
         s=14, alpha=0.15, color="#888888", edgecolors="none",
     )
 
-    tier_labels = cluster_result.tier_labels
-    risk_rank = {cid: config.TIER_LABELS.index(tier_labels[cid])
-                 for cid in tier_labels}
+    risk_rank = cluster_result.risk_rank
 
     for tk in portfolio_tickers:
         path = trajectory.pc_paths.get(tk)
@@ -349,7 +344,7 @@ def plot_portfolio_dashboard(
         ax.tick_params(axis="x", labelsize=7)
 
         tier = rec.get("Risk_Tier", "")
-        ax.set_facecolor(_tier_color(tier) + "15")
+        ax.set_facecolor(_risk_tier_color(tier) + "15")
         ax.set_title(f"{tk} · {tier}", fontsize=10, fontweight="bold")
         ax.invert_yaxis()
 
@@ -368,7 +363,7 @@ def plot_portfolio_dashboard(
 # =============================================================================
 def plot_cluster_profiles(
     cluster_char: pd.DataFrame,
-    tier_labels: dict[int, str],
+    cluster_result,
     outfile: str = "cluster_profiles.png",
 ) -> None:
     """Grouped bar chart: feature means per cluster."""
@@ -382,9 +377,10 @@ def plot_cluster_profiles(
     xs = np.arange(len(feature_cols))
     w = 0.15
     for i, cid in enumerate(cluster_char.index):
-        tier = tier_labels.get(int(cid), "?")
+        style = cluster_result.style_labels.get(int(cid), "?")
         ax.bar(xs + i * w, norm.loc[cid].values, w,
-               label=f"C{cid} · {tier}", color=_tier_color(tier), edgecolor="white")
+               label=f"C{cid} · {style}",
+               color=_style_color(cluster_result, style), edgecolor="white")
 
     ax.set_xticks(xs + w * (len(cluster_char) - 1) / 2)
     ax.set_xticklabels(feature_cols, rotation=40, ha="right", fontsize=9)
@@ -458,12 +454,20 @@ def plot_risk_score_distribution(
     ax.hist(scores["composite_score"], bins=40, color="#4a6fa5",
             edgecolor="white", alpha=0.85)
 
-    for lo, hi, label in config.SCORE_BUCKETS[:-1]:
-        ax.axvline(hi, color="#666666", lw=0.6, ls="--")
-    for lo, hi, label in config.SCORE_BUCKETS:
-        mid = (lo + min(hi, 100)) / 2
+    # Tier boundaries live on the PERCENTILE scale; translate them back to
+    # composite-score values for this cross-section so the lines land where
+    # the tiers actually cut.
+    edges = []
+    for lo, hi, label in config.TIER_PERCENTILE_BUCKETS:
+        lo_s = float(scores["composite_score"].quantile(lo / 100.0))
+        hi_s = float(scores["composite_score"].quantile(min(hi, 100) / 100.0))
+        edges.append((lo_s, hi_s, label))
+    for lo_s, hi_s, label in edges[:-1]:
+        ax.axvline(hi_s, color="#666666", lw=0.6, ls="--")
+    for lo_s, hi_s, label in edges:
+        mid = (lo_s + hi_s) / 2
         ax.text(mid, ax.get_ylim()[1] * 0.96, label, ha="center",
-                fontsize=9, color=_tier_color(label))
+                fontsize=9, color=_risk_tier_color(label))
 
     max_y = ax.get_ylim()[1]
     for tk in portfolio_tickers:

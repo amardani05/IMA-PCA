@@ -187,21 +187,24 @@ def classify_trajectory(
     cluster_result: ClusterResult,
     ticker: str,
 ) -> str:
-    """Return 'Improving' / 'Stable' / 'Deteriorating' based on cluster path."""
+    """Return 'Improving' / 'Steady' / 'Deteriorating' based on cluster path."""
     cp = [c for c in trajectory.cluster_paths.get(ticker, []) if c >= 0]
     if len(cp) < 2:
         return "Unknown"
 
-    # Risk rank by tier label; TIER_LABELS is ordered safest->riskiest
-    tier_labels = config.TIER_LABELS
-    rank = {cid: tier_labels.index(lbl) for cid, lbl in cluster_result.tier_labels.items()}
-    ranks = [rank[c] for c in cp]
+    # Cluster risk ordering comes from ClusterResult.risk_rank (0 = safest).
+    rank = getattr(cluster_result, "risk_rank", None) or {}
+    if not rank:
+        return "Unknown"
+    ranks = [rank.get(c) for c in cp]
+    if any(r is None for r in ranks):
+        return "Unknown"
 
     if ranks[-1] > ranks[0]:
         return "Deteriorating"
     if ranks[-1] < ranks[0]:
         return "Improving"
-    return "Stable"
+    return "Steady"
 
 
 def borderline_stocks(

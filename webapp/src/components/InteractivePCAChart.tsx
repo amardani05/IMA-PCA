@@ -8,7 +8,7 @@ const Plot = createPlotlyComponent(Plotly);
 
 export interface ChartFilters {
   portfolioOnly: boolean;            // hide non-portfolio dots entirely
-  tiers: Set<string>;                // empty = all tiers
+  tiers: Set<string>;                // cluster styles; empty = all
   sectors: Set<string>;              // empty = all sectors
   showTrajectories: boolean;
 }
@@ -45,7 +45,7 @@ function applyFilters(
 ): UniverseRow[] {
   return rows.filter((u) => {
     if (filters.portfolioOnly && !portfolioTickers.has(u.Ticker)) return false;
-    if (filters.tiers.size > 0 && !filters.tiers.has(u.cluster_tier)) return false;
+    if (filters.tiers.size > 0 && !filters.tiers.has(u.cluster_style)) return false;
     if (filters.sectors.size > 0 && !filters.sectors.has(u.Sector)) return false;
     return true;
   });
@@ -59,15 +59,12 @@ function trajectoryColor(
   meta: Meta,
 ): string {
   if (prevCluster == null || nextCluster == null) return "#6c757d";
-  const tierLabels = meta.clustering.tier_labels;
-  const order = meta.tier_order;
-  const prevTier = tierLabels[prevCluster];
-  const nextTier = tierLabels[nextCluster];
-  if (!prevTier || !nextTier) return "#6c757d";
-  const prevRank = order.indexOf(prevTier);
-  const nextRank = order.indexOf(nextTier);
-  if (nextRank > prevRank) return "#b3001b";
-  if (nextRank < prevRank) return "#2c7a4b";
+  const rank = meta.clustering.risk_rank;
+  const prevRank = rank[prevCluster];
+  const nextRank = rank[nextCluster];
+  if (prevRank == null || nextRank == null) return "#6c757d";
+  if (nextRank > prevRank) return "#b3001b";   // moved riskier
+  if (nextRank < prevRank) return "#2c7a4b";   // moved safer
   return "#6c757d";
 }
 
@@ -83,8 +80,8 @@ export function InteractivePCAChart({
   height = 520, showCentroids = true, title,
 }: Props2D) {
   const traces = useMemo(() => {
-    const tierColors = meta.tier_colors;
-    const tierLabels = meta.clustering.tier_labels;
+    const styleColors = meta.style_colors;
+    const styleLabels = meta.clustering.style_labels;
 
     // Selected tickers ALWAYS render (even if filtered out elsewhere) so users
     // never lose track of the highlighted name. Non-selected rows respect filters.
@@ -104,19 +101,19 @@ export function InteractivePCAChart({
     const out: any[] = [];
     for (const cid of Array.from(buckets.keys()).sort()) {
       const rows = buckets.get(cid)!;
-      const tier = tierLabels[cid] ?? "?";
+      const style = styleLabels[cid] ?? "?";
       out.push({
         type: "scatter",
         mode: "markers",
         x: rows.map((r) => r[pcX] ?? null),
         y: rows.map((r) => r[pcY] ?? null),
-        name: `C${cid} · ${tier} (n=${rows.length})`,
-        marker: { color: tierColors[tier], size: 6, opacity: 0.55 },
+        name: `C${cid} · ${style} (n=${rows.length})`,
+        marker: { color: styleColors[style], size: 6, opacity: 0.55 },
         text: rows.map((r) =>
           `<b>${r.Ticker}</b><br>${r.Company ?? ""}<br>` +
-          `${r.Sector} · ${r.cluster_tier}<br>` +
+          `${r.Sector} · ${r.cluster_style} · ${r.risk_tier}<br>` +
           `${pcX}=${r[pcX]?.toFixed(2)} ${pcY}=${r[pcY]?.toFixed(2)}<br>` +
-          `score ${r.composite_score?.toFixed(1)}`),
+          `risk pctile ${r.score_percentile?.toFixed(0)}`),
         hovertemplate: "%{text}<extra></extra>",
         showlegend: true,
       });
@@ -184,7 +181,7 @@ export function InteractivePCAChart({
         name: `Selected (${selectedRows.length})`,
         marker: {
           size: 16,
-          color: selectedRows.map((r) => meta.tier_colors[r.cluster_tier] ?? "#666"),
+          color: selectedRows.map((r) => meta.style_colors[r.cluster_style] ?? "#666"),
           line: { color: "#0a0a0a", width: 2.5 },
           opacity: 1.0,
         },
@@ -193,9 +190,9 @@ export function InteractivePCAChart({
         textfont: { size: 11, color: "#0a0a0a" },
         hovertext: selectedRows.map((r) =>
           `<b>${r.Ticker}</b> · ${r.Company ?? ""}<br>` +
-          `${r.Sector} · ${r.cluster_tier}<br>` +
+          `${r.Sector} · ${r.cluster_style} · ${r.risk_tier}<br>` +
           `${pcX}=${r[pcX]?.toFixed(2)} ${pcY}=${r[pcY]?.toFixed(2)}<br>` +
-          `score ${r.composite_score?.toFixed(1)}`),
+          `risk pctile ${r.score_percentile?.toFixed(0)}`),
         hovertemplate: "%{hovertext}<extra></extra>",
       });
     }
@@ -238,8 +235,8 @@ export function InteractivePCAChart3D({
   portfolioTickers, height = 700, title,
 }: BaseProps) {
   const traces = useMemo(() => {
-    const tierColors = meta.tier_colors;
-    const tierLabels = meta.clustering.tier_labels;
+    const styleColors = meta.style_colors;
+    const styleLabels = meta.clustering.style_labels;
 
     const selectedRows = universe.filter((u) => selectedTickers.has(u.Ticker));
     const filteredOthers = applyFilters(
@@ -257,16 +254,16 @@ export function InteractivePCAChart3D({
     const out: any[] = [];
     for (const cid of Array.from(buckets.keys()).sort()) {
       const rows = buckets.get(cid)!;
-      const tier = tierLabels[cid] ?? "?";
+      const style = styleLabels[cid] ?? "?";
       out.push({
         type: "scatter3d",
         mode: "markers",
         x: rows.map((r) => r.PC1),
         y: rows.map((r) => r.PC2),
         z: rows.map((r) => r.PC3),
-        name: `C${cid} · ${tier} (n=${rows.length})`,
-        marker: { color: tierColors[tier], size: 3, opacity: 0.5 },
-        text: rows.map((r) => `<b>${r.Ticker}</b> · ${r.Sector}<br>${r.cluster_tier}`),
+        name: `C${cid} · ${style} (n=${rows.length})`,
+        marker: { color: styleColors[style], size: 3, opacity: 0.5 },
+        text: rows.map((r) => `<b>${r.Ticker}</b> · ${r.Sector}<br>${r.cluster_style} · ${r.risk_tier}`),
         hovertemplate: "%{text}<extra></extra>",
       });
     }
@@ -315,15 +312,15 @@ export function InteractivePCAChart3D({
         name: `Selected (${selectedRows.length})`,
         marker: {
           size: 9,
-          color: selectedRows.map((r) => meta.tier_colors[r.cluster_tier] ?? "#666"),
+          color: selectedRows.map((r) => meta.style_colors[r.cluster_style] ?? "#666"),
           line: { color: "#0a0a0a", width: 3 }, opacity: 1.0,
         },
         text: selectedRows.map((r) => r.Ticker),
         textposition: "top center",
         textfont: { size: 10 },
         hovertext: selectedRows.map((r) =>
-          `<b>${r.Ticker}</b> · ${r.Sector}<br>${r.cluster_tier}<br>` +
-          `score ${r.composite_score?.toFixed(1)}`),
+          `<b>${r.Ticker}</b> · ${r.Sector}<br>${r.cluster_style} · ${r.risk_tier}<br>` +
+          `risk pctile ${r.score_percentile?.toFixed(0)}`),
         hovertemplate: "%{hovertext}<extra></extra>",
       });
     }

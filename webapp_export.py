@@ -63,14 +63,17 @@ def export_universe_table(
     for pc in pca_result.scores.columns:
         df[pc] = pca_result.scores[pc]
     df["cluster"] = cluster_result.assignments
-    df["cluster_tier"] = df["cluster"].map(cluster_result.tier_labels)
+    df["cluster_style"] = df["cluster"].map(cluster_result.style_labels)
     df["composite_score"] = percentile_ranks["composite_score"]
+    df["score_percentile"] = percentile_ranks["score_percentile"]
     df["risk_tier"] = percentile_ranks["risk_tier"]
     df["is_portfolio"] = df["Ticker"].isin(config.PORTFOLIO)
     df["weight"] = df["Ticker"].map(config.PORTFOLIO).fillna(0.0)
 
-    cols_front = ["Ticker", "Company", "Sector", "is_financial", "is_portfolio",
-                  "weight", "cluster", "cluster_tier", "composite_score", "risk_tier"]
+    cols_front = ["Ticker", "Company", "Sector", "Industry", "market_cap",
+                  "is_financial", "is_portfolio", "weight", "cluster",
+                  "cluster_style", "composite_score", "score_percentile",
+                  "risk_tier"]
     pcs = [c for c in df.columns if c.startswith("PC")]
     feats = [c for c in config.FEATURES if c in df.columns]
     cols_order = cols_front + pcs + feats
@@ -89,7 +92,9 @@ def export_clusters(cluster_result) -> None:
     _write_json({
         "k": cluster_result.k,
         "silhouette": cluster_result.silhouette,
-        "tier_labels": {int(k): v for k, v in cluster_result.tier_labels.items()},
+        "style_labels": {int(k): v for k, v in cluster_result.style_labels.items()},
+        "risk_rank": {int(k): int(v) for k, v in cluster_result.risk_rank.items()},
+        "style_colors": dict(cluster_result.style_colors),
         "centroids": cluster_result.centroids.tolist(),
         "diagnostics": _to_records(cluster_result.diagnostics.reset_index()),
     }, "cluster_meta")
@@ -160,7 +165,21 @@ def export_trajectory(trajectory) -> None:
     _write_json({"snapshots": snapshots, "paths": paths}, "trajectory")
 
 
+def _file_age_meta(path: Path) -> dict | None:
+    """Modification timestamp for a cache file, or None when absent."""
+    if not path.exists():
+        return None
+    return {
+        "updated_at": datetime.utcfromtimestamp(path.stat().st_mtime).isoformat() + "Z",
+    }
+
+
 def export_meta(pca_result, cluster_result, features: pd.DataFrame) -> None:
+    # Cluster style order, safest first (by risk rank)
+    style_order = [
+        cluster_result.style_labels[cid]
+        for cid, _rank in sorted(cluster_result.risk_rank.items(), key=lambda kv: kv[1])
+    ]
     payload = {
         "generated_at": datetime.utcnow().isoformat() + "Z",
         "universe_size": int(len(features)),
@@ -177,25 +196,48 @@ def export_meta(pca_result, cluster_result, features: pd.DataFrame) -> None:
         "clustering": {
             "k": int(cluster_result.k),
             "silhouette": float(cluster_result.silhouette),
-            "tier_labels": {int(k): v for k, v in cluster_result.tier_labels.items()},
+            "style_labels": {int(k): v for k, v in cluster_result.style_labels.items()},
+            "risk_rank": {int(k): int(v) for k, v in cluster_result.risk_rank.items()},
         },
+        # RISK tiers (score-percentile buckets): stoplight, with a neutral middle.
         "tier_order": list(config.TIER_LABELS),
         "tier_colors": {
-            # Current 3-tier vocabulary — stoplight green/amber/red so the
-            # three buckets are unambiguous on a scatter plot.
-            "Stable":     "#2c7a4b",   # deep green
-            "Mainstream": "#d4a017",   # amber/gold
-            "Elevated":   "#b3001b",   # deep red
-            # Legacy 5-tier keys retained so older payloads still render
-            # something readable.
-            "Low Risk":   "#2c7a4b",
-            "Moderate":   "#7fb069",
-            "High":       "#e57a44",
-            "Critical":   "#b3001b",
+            "Low Risk": "#2c7a4b",   # deep green
+            "In Line":  "#64748b",   # neutral slate
+            "Elevated": "#b3001b",   # deep red
+        },
+        # Cluster STYLES (descriptive groupings): separate palette so styles
+        # never read as a risk verdict.
+        "style_order": style_order,
+        "style_colors": dict(cluster_result.style_colors),
+        # Per-source data freshness for the dashboard banner. Short interest is
+        # published by exchanges on a ~2-week lag regardless of fetch time.
+        "data_freshness": {
+            "prices": _file_age_meta(config.PRICE_CACHE),
+            "fundamentals": _file_age_meta(config.FUNDAMENTALS_CACHE),
+            "sec_filings": _file_age_meta(config.SEC_FILINGS_CACHE),
+            "short_interest_note": "exchange-published on a ~2-week lag",
         },
     }
     (WEBAPP_PUBLIC / "meta.json").write_text(json.dumps(payload, indent=2))
     logger.info("Wrote meta.json")
+
+
+# =============================================================================
+# Backtest export
+# =============================================================================
+def export_backtest(evaluation: dict) -> None:
+    """Write the full backtest evaluation bundle to ``data/backtest.json``.
+
+    ``evaluation`` is the dict returned by ``backtest.evaluate`` — decile/tier
+    hit-rates with CIs, IC time series + t-stats, ROC + AUC, tier calibration,
+    the IMA hit/miss table, strategy equity curves, event counts, and metadata.
+    """
+    _ensure_dirs()
+    _write_json(evaluation, "backtest")
+    logger.info("Wrote backtest.json (%d snapshots, %d events)",
+                evaluation.get("metadata", {}).get("n_snapshots", 0),
+                evaluation.get("base_rate", {}).get("n_events", 0))
 
 
 # =============================================================================

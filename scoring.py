@@ -34,25 +34,29 @@ def compute_composite_scores(
     composite = pct_ranks.mean(axis=1)
     out = pct_ranks.copy()
     out["composite_score"] = composite
-    out["risk_tier"] = out["composite_score"].apply(score_to_tier)
+    # The raw composite (a mean of many percentile ranks) concentrates near 50,
+    # so tiers are cut on its percentile within THIS cross-section — a rank of
+    # ranks. This keeps the 20/60/20 tier split calibrated by construction and
+    # stays leak-free in the backtest (computed per snapshot).
+    out["score_percentile"] = composite.rank(pct=True) * 100.0
+    out["risk_tier"] = out["score_percentile"].apply(percentile_to_tier)
     return out
 
 
-def score_to_tier(score: float) -> str:
-    for lo, hi, label in config.SCORE_BUCKETS:
-        if lo <= score < hi:
+def percentile_to_tier(pctile: float) -> str:
+    for lo, hi, label in config.TIER_PERCENTILE_BUCKETS:
+        if lo <= pctile < hi:
             return label
-    return config.SCORE_BUCKETS[-1][2]
+    return config.TIER_PERCENTILE_BUCKETS[-1][2]
 
 
-def format_combined_label(cluster_label: str, composite_score: float) -> str:
-    """Pair the cluster tier with the composite-score percentile.
+def format_combined_label(risk_tier: str, score_percentile: float) -> str:
+    """Pair the risk tier with the composite-score percentile.
 
-    The cluster label (Stable / Mainstream / Elevated) is a coarse summary;
-    the composite score is the granular measure. Showing both at once is the
-    honest committee-presentable format — e.g. ``"Mainstream (47th pct)"``.
+    Tier and percentile come from the same scale (the tier IS a percentile
+    bucket), so the pair reads consistently — e.g. ``"In Line · 47th pct"``.
     """
-    return f"{cluster_label} ({composite_score:.0f}th pct)"
+    return f"{risk_tier} · {score_percentile:.0f}th pct"
 
 
 # =============================================================================
@@ -67,7 +71,8 @@ def top_risk_drivers(
     if ticker not in percentile_ranks.index:
         return []
     row = percentile_ranks.loc[ticker].drop(
-        labels=[c for c in ("composite_score", "risk_tier") if c in percentile_ranks.columns]
+        labels=[c for c in ("composite_score", "score_percentile", "risk_tier")
+                if c in percentile_ranks.columns]
     )
     top = row.sort_values(ascending=False).head(k)
     return [(name, float(val)) for name, val in top.items()]
@@ -102,8 +107,9 @@ def build_portfolio_report(
     features: pd.DataFrame,
     percentile_ranks: pd.DataFrame,
     cluster_assignments: pd.Series,
-    tier_labels: dict[int, str],
+    style_labels: dict[int, str],
     trajectories,
+    risk_rank: dict[int, int] | None = None,
 ) -> pd.DataFrame:
     """Build the IMA portfolio risk detail table."""
     from trajectory import classify_trajectory
@@ -118,9 +124,10 @@ def build_portfolio_report(
             })
             continue
         score = float(percentile_ranks.loc[tk, "composite_score"])
+        pctile = float(percentile_ranks.loc[tk, "score_percentile"])
         tier = percentile_ranks.loc[tk, "risk_tier"]
         cluster = int(cluster_assignments.get(tk, -1))
-        cluster_label = tier_labels.get(cluster, "?") if cluster >= 0 else "?"
+        cluster_label = style_labels.get(cluster, "?") if cluster >= 0 else "?"
 
         drivers = top_risk_drivers(percentile_ranks, tk, k=3)
         driver_str = "; ".join(f"{n}({v:.0f})" for n, v in drivers)
@@ -131,7 +138,7 @@ def build_portfolio_report(
         drift_2q = np.nan
         if trajectories is not None:
             trajectory_dir = classify_trajectory(
-                trajectories, _ClusterResultFacade(tier_labels), tk
+                trajectories, _ClusterResultFacade(style_labels, risk_rank), tk
             ) if hasattr(trajectories, "cluster_paths") else "N/A"
             drift_2q = trajectories.two_quarter_drift.get(tk, np.nan)
 
@@ -140,10 +147,11 @@ def build_portfolio_report(
             "Weight": weight,
             "Sector": features.loc[tk, "Sector"],
             "Composite_Score": round(score, 1),
+            "Score_Percentile": round(pctile, 1),
             "Risk_Tier": tier,
             "Cluster": cluster,
             "Cluster_Label": cluster_label,
-            "Combined_Display": format_combined_label(cluster_label, score),
+            "Combined_Display": format_combined_label(tier, pctile),
             "Altman_Z": _safe_round(features.loc[tk].get("altman_z"), 2),
             "Short_Pct_Float": _safe_round(features.loc[tk].get("short_pct_float"), 1),
             "Momentum_90d": _safe_round(features.loc[tk].get("momentum_90d"), 3),
@@ -159,9 +167,10 @@ def build_portfolio_report(
 
 
 class _ClusterResultFacade:
-    """Minimal adapter exposing tier_labels to classify_trajectory."""
-    def __init__(self, tier_labels):
-        self.tier_labels = tier_labels
+    """Minimal adapter exposing style_labels / risk_rank to classify_trajectory."""
+    def __init__(self, style_labels, risk_rank=None):
+        self.style_labels = style_labels
+        self.risk_rank = risk_rank or {}
 
 
 def _safe_round(x, n):

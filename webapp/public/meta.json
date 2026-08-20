@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-06-25T01:19:51.947961Z",
+  "generated_at": "2026-08-20T19:53:20.303979Z",
   "universe_size": 605,
   "n_portfolio": 20,
   "financials_count": 161,
@@ -8,19 +8,19 @@
   "pca": {
     "n_components": 4,
     "variance_explained": [
-      0.15630462986647123,
-      0.12636605718909125,
-      0.09616075901351494,
-      0.08597057246161055
+      0.13954219356434047,
+      0.1330967554836148,
+      0.09815127003676678,
+      0.0902960532157946
     ],
     "cumulative_variance": [
-      0.15630462986647123,
-      0.2826706870555625,
-      0.3788314460690774,
-      0.464802018530688
+      0.13954219356434047,
+      0.27263894904795527,
+      0.37079021908472204,
+      0.46108627230051663
     ],
     "pc_labels": {
-      "PC1": "Market Sentiment",
+      "PC1": "Valuation Stress",
       "PC2": "Financial Health",
       "PC3": "Market Sentiment",
       "PC4": "Financial Health"
@@ -28,25 +28,46 @@
   },
   "clustering": {
     "k": 3,
-    "silhouette": 0.34766920765880766,
-    "tier_labels": {
-      "0": "Stable",
-      "1": "Mainstream",
-      "2": "Elevated"
+    "silhouette": 0.32179287213911056,
+    "style_labels": {
+      "0": "Core",
+      "1": "High-Multiple Growth",
+      "2": "Balance-Sheet Stress"
+    },
+    "risk_rank": {
+      "0": 0,
+      "1": 1,
+      "2": 2
     }
   },
   "tier_order": [
-    "Stable",
-    "Mainstream",
+    "Low Risk",
+    "In Line",
     "Elevated"
   ],
   "tier_colors": {
-    "Stable": "#2c7a4b",
-    "Mainstream": "#d4a017",
-    "Elevated": "#b3001b",
     "Low Risk": "#2c7a4b",
-    "Moderate": "#7fb069",
-    "High": "#e57a44",
-    "Critical": "#b3001b"
+    "In Line": "#64748b",
+    "Elevated": "#b3001b"
+  },
+  "style_order": [
+    "Core",
+    "High-Multiple Growth",
+    "Balance-Sheet Stress"
+  ],
+  "style_colors": {
+    "Core": "#4a7fb5",
+    "High-Multiple Growth": "#8a63bf",
+    "Balance-Sheet Stress": "#c05621"
+  },
+  "data_freshness": {
+    "prices": {
+      "updated_at": "2026-08-20T19:51:05.907983Z"
+    },
+    "fundamentals": {
+      "updated_at": "2026-08-20T19:22:42.360826Z"
+    },
+    "sec_filings": null,
+    "short_interest_note": "exchange-published on a ~2-week lag"
   }
 }

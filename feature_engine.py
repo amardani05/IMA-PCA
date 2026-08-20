@@ -1,4 +1,4 @@
-"""Compute all torpedo-risk features for every S&P 600 stock.
+"""Compute all drawdown-risk features for every S&P 600 stock.
 
 Produces, for each ticker, the 14 features listed in ``config.FEATURES`` plus
 company/sector metadata. Features are built from yfinance fundamentals and
@@ -869,6 +869,9 @@ def build_features(
             "Company": _company_from_bundle(b, universe_meta.loc[tk].get("Company")),
             "Sector": sector,
             "is_financial": is_financial,
+            # Identity metadata for the webapp (not model features)
+            "Industry": universe_meta.loc[tk].get("Industry"),
+            "market_cap": b.info.get("marketCap"),
         }
 
         row["altman_z"] = compute_altman_z(b, is_financial, col_idx)

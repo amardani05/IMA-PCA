@@ -14,7 +14,7 @@ Usage::
         ticker="ABCD",
         pca_result=pca_result,
         cluster_result=cluster_result,
-        torpedo_features=clean_features,
+        features=clean_features,
         portfolio=config.PORTFOLIO,
         universe_meta=universe_df,
     )
@@ -60,10 +60,12 @@ class PitchAssessment:
     significant_deviations: list[str]
     diversification_score: float
 
-    # Torpedo cluster context
+    # Risk-model context
     cluster_id: int
-    cluster_tier: str
+    cluster_style: str
+    risk_tier: str
     composite_risk_score: float
+    score_percentile: float
     top_risk_drivers: list[tuple[str, float]]
     cluster_trajectory: str
 
@@ -133,7 +135,9 @@ class PitchAssessment:
         lines.append("")
 
         lines.append(" RISK PROFILE")
-        lines.append(f"   Torpedo cluster: {self.cluster_id} ({self.cluster_tier})")
+        lines.append(f"   Style cluster: {self.cluster_id} ({self.cluster_style})")
+        lines.append(f"   Risk tier: {self.risk_tier} "
+                     f"({self.score_percentile:.0f}th percentile)")
         lines.append(f"   Composite score: {self.composite_risk_score:.0f}/100")
         lines.append(f"   Sector comparison: {self.sector_comparison}")
         if self.top_risk_drivers:
@@ -152,17 +156,17 @@ class PitchAssessment:
 def _generate_recommendation(
     n_neighbors_held: int,
     n_neighbors_formerly_held: int,
-    cluster_tier: str,
-    composite_score: float,
+    risk_tier: str,
+    score_percentile: float,
     diversification_score: float,
     sector_delta: float,
 ) -> tuple[str, str]:
     flags = []
 
-    if cluster_tier in ("High", "Critical"):
-        flags.append(f"torpedo screener flags as {cluster_tier} risk")
-    if composite_score > 70:
-        flags.append(f"composite risk score {composite_score:.0f}/100")
+    if risk_tier == "Elevated":
+        flags.append(
+            f"risk screener places it in the Elevated tier "
+            f"({score_percentile:.0f}th percentile of the universe)")
 
     if n_neighbors_held >= 4:
         flags.append("nearly identical to existing holdings — limited diversification")
@@ -172,7 +176,7 @@ def _generate_recommendation(
     if sector_delta > 15:
         flags.append("substantially riskier than sector peers")
 
-    if cluster_tier == "Critical" or composite_score > 80:
+    if score_percentile > 90:
         return ("AVOID",
                 "Statistical risk indicators are at extreme levels. " + "; ".join(flags))
     if len(flags) >= 2:
@@ -190,8 +194,8 @@ def _generate_summary_bullets(
     similarity_verdict: str,
     n_held: int,
     nearest_neighbors: list[dict],
-    cluster_tier: str,
-    composite_score: float,
+    risk_tier: str,
+    score_percentile: float,
     drivers: list[tuple[str, float]],
     significant_deviations: list[str],
     sector: str,
@@ -222,21 +226,15 @@ def _generate_summary_bullets(
             "limited statistical differentiation"
         )
 
-    if cluster_tier in ("High", "Critical"):
+    if risk_tier == "Elevated":
         driver_str = ", ".join(f"{d[0]} ({d[1]:.0f})" for d in drivers[:2])
         bullets.append(
-            f"⚠ Torpedo screener: tier {cluster_tier} (score {composite_score:.0f}/100). "
-            f"Top risk drivers: {driver_str}"
-        )
-    elif cluster_tier == "Elevated":
-        d0 = drivers[0] if drivers else None
-        watch = f"Watch: {d0[0]} pctile {d0[1]:.0f}" if d0 else ""
-        bullets.append(
-            f"Torpedo screener: Elevated (score {composite_score:.0f}/100). {watch}"
+            f"⚠ Risk screener: Elevated tier — {score_percentile:.0f}th percentile "
+            f"of the universe. Top risk drivers: {driver_str}"
         )
     else:
         bullets.append(
-            f"Torpedo screener: {cluster_tier} (score {composite_score:.0f}/100) — "
+            f"Risk screener: {risk_tier} ({score_percentile:.0f}th percentile) — "
             f"no elevated statistical risk signals"
         )
 
@@ -251,7 +249,7 @@ def assess_pitch(
     ticker: str,
     pca_result,
     cluster_result,
-    torpedo_features: pd.DataFrame,
+    features: pd.DataFrame,
     portfolio: dict[str, float],
     portfolio_history: list[str] | None = None,
     n_neighbors: int = 5,
@@ -343,11 +341,13 @@ def assess_pitch(
     avg_abs_dev = sum(abs(d) for d in deviations.values()) / max(len(deviations), 1)
     diversification_score = float(min(100.0, avg_abs_dev * 50.0))
 
-    # ---------- 3. Torpedo cluster context ----------
+    # ---------- 3. Risk-model context ----------
     cluster_id = int(cluster_result.assignments.get(ticker, -1))
-    cluster_tier = cluster_result.tier_labels.get(cluster_id, "Unknown")
-    pct_ranks = compute_composite_scores(torpedo_features)
+    cluster_style = cluster_result.style_labels.get(cluster_id, "Unknown")
+    pct_ranks = compute_composite_scores(features)
     composite_score = float(pct_ranks.loc[ticker, "composite_score"])
+    score_percentile = float(pct_ranks.loc[ticker, "score_percentile"])
+    risk_tier = str(pct_ranks.loc[ticker, "risk_tier"])
     drivers = top_risk_drivers(pct_ranks, ticker, k=3)
 
     # ---------- 4. Sector context ----------
@@ -357,16 +357,16 @@ def assess_pitch(
         industry = str(meta_idx.loc[ticker, "Industry"]) if pd.notna(meta_idx.loc[ticker, "Industry"]) else ""
         company_name = str(meta_idx.loc[ticker, "Company"]) if pd.notna(meta_idx.loc[ticker, "Company"]) else ticker
     else:
-        sector = str(torpedo_features.loc[ticker, "Sector"]) if "Sector" in torpedo_features.columns else "Unknown"
+        sector = str(features.loc[ticker, "Sector"]) if "Sector" in features.columns else "Unknown"
         industry = ""
         company_name = (
-            str(torpedo_features.loc[ticker, "Company"])
-            if "Company" in torpedo_features.columns else ticker
+            str(features.loc[ticker, "Company"])
+            if "Company" in features.columns else ticker
         )
 
     sector_peers = (
-        torpedo_features[torpedo_features["Sector"] == sector].index
-        if "Sector" in torpedo_features.columns
+        features[features["Sector"] == sector].index
+        if "Sector" in features.columns
         else pd.Index([])
     ).intersection(pct_ranks.index).difference([ticker])
 
@@ -394,18 +394,18 @@ def assess_pitch(
     # ---------- 6. Bullets + recommendation ----------
     bullets = _generate_summary_bullets(
         ticker, similarity_verdict, n_held, nn_rows,
-        cluster_tier, composite_score, drivers,
+        risk_tier, score_percentile, drivers,
         significant, sector, comp_label,
     )
     rec, rationale = _generate_recommendation(
-        n_held, n_formerly, cluster_tier, composite_score,
+        n_held, n_formerly, risk_tier, score_percentile,
         diversification_score, delta,
     )
 
     market_cap = 0.0
-    if "market_cap" in torpedo_features.columns:
+    if "market_cap" in features.columns:
         try:
-            mc = torpedo_features.loc[ticker, "market_cap"]
+            mc = features.loc[ticker, "market_cap"]
             market_cap = float(mc) if pd.notna(mc) else 0.0
         except (KeyError, ValueError, TypeError):
             market_cap = 0.0
@@ -426,8 +426,10 @@ def assess_pitch(
         significant_deviations=significant,
         diversification_score=diversification_score,
         cluster_id=cluster_id,
-        cluster_tier=cluster_tier,
+        cluster_style=cluster_style,
+        risk_tier=risk_tier,
         composite_risk_score=composite_score,
+        score_percentile=score_percentile,
         top_risk_drivers=drivers,
         cluster_trajectory=cluster_trajectory,
         sector_median_score=sector_median,
@@ -447,7 +449,7 @@ def assess_batch(
     tickers: list[str],
     pca_result,
     cluster_result,
-    torpedo_features: pd.DataFrame,
+    features: pd.DataFrame,
     portfolio: dict[str, float],
     portfolio_history: list[str] | None = None,
     universe_meta: pd.DataFrame | None = None,
@@ -464,7 +466,7 @@ def assess_batch(
                 ticker=tk,
                 pca_result=pca_result,
                 cluster_result=cluster_result,
-                torpedo_features=torpedo_features,
+                features=features,
                 portfolio=portfolio,
                 portfolio_history=portfolio_history,
                 universe_meta=universe_meta,

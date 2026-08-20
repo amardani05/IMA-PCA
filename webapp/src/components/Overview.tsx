@@ -4,7 +4,7 @@ import {
   PortfolioRow, TrajectoryData, UniverseRow,
 } from "../lib/types";
 import { usePortfolioSelection } from "../hooks/usePortfolioSelection";
-import { tierClass, fmt } from "../lib/data";
+import { fmt } from "../lib/data";
 import { PCATree } from "./PCATree";
 import {
   InteractivePCAChart,
@@ -56,10 +56,13 @@ export function Overview(props: Props) {
     <div>
       <h2 className="section-title">PCA explorer</h2>
       <p className="section-lede">
-        Toggle stocks in the sector tiles below to highlight them on every
-        chart. Trajectory polylines show portfolio holdings' paths through PC
-        space over recent quarters. Use the filter bar to hide non-portfolio
-        dots, narrow to specific tiers / sectors, or turn off trajectory overlays.
+        Each dot is a stock, positioned by its risk-factor profile — nearby dots
+        are statistically similar names, and colors are descriptive style
+        clusters (not risk ratings). Toggle stocks in the sector tiles below to
+        highlight them on every chart; trajectory polylines show portfolio
+        holdings' paths over recent quarters. Note: the four axes capture about
+        {" "}{((meta.pca.cumulative_variance[meta.pca.cumulative_variance.length - 1] ?? 0) * 100).toFixed(0)}% of the
+        variation in the 16 features, so treat proximity as approximate.
       </p>
 
       <PCATree
@@ -148,11 +151,13 @@ function ClustersBlock({
 
   return (
     <div style={{ marginTop: 28 }}>
-      <h2 className="section-title">Clusters</h2>
+      <h2 className="section-title">Style clusters</h2>
       <p className="section-lede">
-        k-means was run for k ∈ {"{3..7}"}. The {meta.clustering.k}-cluster solution
-        was selected on a silhouette score of {fmt(meta.clustering.silhouette, 3)}. Tiers are
-        assigned by composite-risk rank so the labels stay stable across runs.
+        k-means groups the universe into statistical "styles" — named for what
+        the group looks like, never for how risky it is (risk lives in the tier
+        column of the Universe tab). Cluster structure in this data is weak
+        (silhouette {fmt(meta.clustering.silhouette, 3)} at k={meta.clustering.k}),
+        so read these as soft neighborhoods, not hard categories.
       </p>
 
       <div style={{
@@ -162,7 +167,7 @@ function ClustersBlock({
           <h3 style={{ margin: 0 }}>Cluster summary</h3>
           <table className="data">
             <thead>
-              <tr><th>Cluster</th><th>Tier</th><th>Count</th><th>Top sectors</th></tr>
+              <tr><th>Cluster</th><th>Style</th><th>Count</th><th>Top sectors</th></tr>
             </thead>
             <tbody>
               {clusters.map((c) => {
@@ -175,7 +180,9 @@ function ClustersBlock({
                 return (
                   <tr key={c.cluster}>
                     <td><strong>C{c.cluster}</strong></td>
-                    <td><span className={tierClass(c.tier)}>{c.tier}</span></td>
+                    <td><span className="style-chip"
+                              style={{ background: meta.style_colors?.[c.style] ?? "#666" }}>
+                          {c.style}</span></td>
                     <td className="num">{c.n_stocks}</td>
                     <td><small>{topSectors || "—"}</small></td>
                   </tr>
@@ -241,8 +248,9 @@ function PCABlock({
       <h2 className="section-title">PCA decomposition</h2>
       <p className="section-lede">
         Features are z-scored before PCA. Each PC is auto-labeled by its
-        dominant-loading feature family; cross-check the labels against the
-        loadings table before citing them.
+        dominant-loading feature family; the labels are heuristics and can
+        repeat across PCs — cross-check against the loadings table before
+        citing them in committee.
       </p>
 
       <div style={{

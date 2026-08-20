@@ -87,7 +87,7 @@ def audit_ticker(
 
     # 4. Cluster + centroid distances
     cluster = int(cluster_result.assignments.loc[ticker])
-    cluster_tier = cluster_result.tier_labels.get(cluster, "?")
+    cluster_tier = cluster_result.style_labels.get(cluster, "?")
     findings["cluster"] = cluster
     findings["cluster_tier"] = cluster_tier
 
@@ -96,7 +96,7 @@ def audit_ticker(
     for c_id, centroid in enumerate(cluster_result.centroids):
         centroid_distances.append({
             "cluster": int(c_id),
-            "tier": cluster_result.tier_labels.get(int(c_id), "?"),
+            "tier": cluster_result.style_labels.get(int(c_id), "?"),
             "distance": float(np.linalg.norm(score_vec - centroid)),
             "is_assigned": bool(c_id == cluster),
         })

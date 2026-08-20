@@ -18,11 +18,13 @@ interface Props<T> {
   pageSize?: number;
   filterText?: string;
   filterFn?: (row: T, text: string) => boolean;
+  /** Optional tooltip text per column key, shown on header hover. */
+  headerTitle?: (key: string) => string | undefined;
 }
 
 export function DataTable<T>(props: Props<T>) {
   const { rows, columns, rowClassName, initialSortKey, pageSize,
-          filterText = "", filterFn } = props;
+          filterText = "", filterFn, headerTitle } = props;
 
   const [sortKey, setSortKey] = useState<string | null>(initialSortKey ?? null);
   const [sortDesc, setSortDesc] = useState<boolean>(true);
@@ -76,13 +78,18 @@ export function DataTable<T>(props: Props<T>) {
         <table className="data">
           <thead>
             <tr>
-              {columns.map((c) => (
-                <th key={c.key} onClick={() => headerClick(c.key)}
-                    className={c.numeric ? "num" : ""}>
-                  {c.header}
-                  {sortKey === c.key && (sortDesc ? " ▼" : " ▲")}
-                </th>
-              ))}
+              {columns.map((c) => {
+                const hint = headerTitle?.(c.key);
+                return (
+                  <th key={c.key} onClick={() => headerClick(c.key)}
+                      className={c.numeric ? "num" : ""}
+                      title={hint}
+                      {...(hint ? { "data-hint": true } : {})}>
+                    {c.header}
+                    {sortKey === c.key && (sortDesc ? " ▼" : " ▲")}
+                  </th>
+                );
+              })}
             </tr>
           </thead>
           <tbody>

@@ -6,7 +6,7 @@ on the S&P 600 universe, but they answer very different questions:
 | Project | Question | Runs against |
 | --- | --- | --- |
 | **Project 1 — Factor Exposure PCA** | Which latent return factors does our portfolio tilt into? | Daily return series |
-| **Project 2 — Torpedo Risk Screener** | Which stocks are at elevated risk of a severe drawdown? | Cross-sectional risk features |
+| **Project 2 — Drawdown Risk Screener** | Which stocks are at elevated risk of a severe drawdown? | Cross-sectional risk features |
 
 The screener is the currently active project — its entry point is `main.py`.
 The factor-exposure modules still live in the repo as reusable Python
@@ -18,7 +18,7 @@ components (see "Running Project 1" below).
 
 ```
 IMA-PCA/
-├── config.py                 # Torpedo screener settings (portfolio, features, hyperparams)
+├── config.py                 # Risk screener settings (portfolio, features, hyperparams)
 ├── universe.py               # S&P 600 Wikipedia scraper with fallback (shared)
 │
 ├── feature_engine.py         # [Project 2] 14-feature risk matrix per stock
@@ -63,7 +63,7 @@ SEC EDGAR. All outputs are cached under `data/`, so subsequent runs are fast.
 
 ---
 
-## Project 2 — Torpedo Risk Screener (active)
+## Project 2 — Drawdown Risk Screener (active)
 
 ### What it does
 
@@ -81,14 +81,20 @@ signals into a single framework:
 All **16 features** are z-scored, reduced to four principal components, and
 clustered with k-means. `N_CLUSTERS=3` (the silhouette gap to k=4 was
 within tolerance, and k=3 eliminates a cluster whose members were on
-average closer to a different cluster's centroid). Each cluster is
-tier-labeled by its composite risk score — producing a
-**Stable → Mainstream → Elevated** ordering, regardless of which k is picked.
+average closer to a different cluster's centroid). Clusters are given
+DESCRIPTIVE **style names** generated from their feature signatures (e.g.
+"Core", "High-Multiple Growth", "Balance-Sheet Stress") plus a separate
+risk rank — style names deliberately never read as a risk verdict
+(2026-08 recalibration; the old scheme reused tier words for clusters).
 
 A per-stock 0-100 composite score (mean of risk-direction-flipped percentile
-ranks) is produced alongside the cluster label. The two views are reported
-together because their disagreements are informative: cluster says "cheap
-fundamentals but extreme sentiment"; score says "top decile by sentiment".
+ranks) is produced alongside. **Risk tiers** are cut on the score's
+*percentile* within the cross-section — bottom 20% **Low Risk**, middle 60%
+**In Line**, top 20% **Elevated** — because the raw composite concentrates
+near 50 by construction and fixed raw-score buckets left ~97% of the
+universe in one bucket. The cluster style and the risk tier are reported
+together because their disagreements are informative: style says "looks like
+a leveraged balance sheet"; tier says "83rd percentile of aggregate risk".
 
 The trajectory module re-computes features at several past quarter-ends, runs
 them through the *same* scaler + PCA + k-means model, and produces per-stock
@@ -122,10 +128,10 @@ quarters, and stocks within 0.5 PC-units of a boundary.
   up to that date. Uses the SAME scaler/PCA/k-means fitted on the current
   snapshot so all points share one coordinate system.
 - **`scoring.py`** — Per-feature percentile rank (flipped for direction),
-  averaged into a 0-100 score, bucketed into 3 tiers (**Stable / Mainstream
-  / Elevated**). `format_combined_label` pairs the cluster tier with the
-  composite-score percentile (e.g. `"Mainstream (47th pct)"`) — the cluster
-  label is a coarse summary, the percentile is the granular measure. The
+  averaged into a 0-100 score; the score's percentile within the
+  cross-section is bucketed 20/60/20 into 3 tiers (**Low Risk / In Line /
+  Elevated**). `format_combined_label` pairs the tier with the percentile
+  (e.g. `"In Line · 47th pct"`). The
   contrarian "opportunity screen" pulls stocks with `altman_z > 2`,
   `short_pct_float > 8%`, `momentum_90d < 0`.
 - **`visualization.py`** — All static matplotlib charts with consistent tier
@@ -137,6 +143,14 @@ quarters, and stocks within 0.5 PC-units of a boundary.
 - **`webapp_export.py`** — Dumps every pipeline table as JSON and copies all
   chart assets into `webapp/public/`. Invoked as the final pipeline step.
 - **`main.py`** — Orchestrator and terminal summary.
+
+### Daily auto-refresh
+
+`scripts/daily_update.sh` runs the full pipeline every weekday at 07:30 local
+time via the LaunchAgent `com.ima.pca.daily` (plist copy in `scripts/`,
+installed to `~/Library/LaunchAgents`), commits the regenerated
+`webapp/public/` data, pushes, and deploys to Vercel production. Logs land in
+`output/daily/`. On failure the site simply keeps the previous day's data.
 
 ### How to run it
 
@@ -199,15 +213,14 @@ A diagnostic suite (`python -m diagnostics.run_all`) audited the pipeline
 before the website was built. It surfaced four findings worth being honest
 about with the committee:
 
-- **Cluster labels are calibrated to the *current* universe**, not absolute
-  risk levels. "Stable" means the stock looks unremarkable on PC space *vs.
-  this S&P 600 cohort*. It is **not** a credit rating.
-- **About 70% of the universe lands in "Mainstream"** because most S&P 600
-  stocks don't exhibit extreme risk signatures. The cluster taxonomy adds
-  granularity at the tails (Stable + Elevated) but doesn't cleanly separate
-  the middle of the distribution. The composite **score percentile** (0-100)
-  is the more granular measure; tier labels are summary categories.
-  `format_combined_label` shows both at once (e.g. `"Mainstream (47th pct)"`).
+- **All labels are calibrated to the *current* universe**, not absolute risk
+  levels. "Low Risk" means the stock ranks in the bottom quintile of
+  aggregate risk *vs. this S&P 600 cohort*. It is **not** a credit rating.
+- **Most of the universe is statistically unremarkable** — the largest style
+  cluster ("Core") holds ~70% of names. That is honest: most S&P 600 stocks
+  don't exhibit extreme risk signatures. The **score percentile** is the
+  granular measure; the 20/60/20 tier split is calibrated by construction
+  (2026-08 recalibration — the previous fixed raw-score buckets were not).
 - **Cluster ARI under 80% subsampling = 0.671** (moderate-stable). PCs are
   highly stable (cosine similarity 0.82–0.97). Borderline names near a
   cluster boundary may shift between runs; the drift-alerts table flags them.
@@ -241,6 +254,114 @@ To restore any dropped feature, fix the data source, then add it back to
 
 ---
 
+### Backtest — does the screener actually predict severe drawdowns?
+
+The live screener is, on its own, **unvalidated**: it scores the *current*
+cross-section but has no label and no forward returns, so it cannot tell you
+whether a high score has historically preceded a drawdown. The backtest engine
+(`backtest.py`, `historical_loader.py`) closes that gap. It **reuses the exact
+production scoring/PCA/clustering code** (`scoring.compute_composite_scores`,
+`pca_cluster.run_pca`/`run_clustering`) — fitting the scaler/PCA **per snapshot**
+so nothing from the future leaks into a past cross-section — and asks the only
+question that matters: *did Elevated names blow up more often than Low Risk ones?*
+
+**The severe-drawdown label** (configurable in `config.py`):
+
+- Primary binary label — a name is a **severe-drawdown event** if its forward
+  `DD_HORIZON_MONTHS`-month (default **6m**) peak-to-trough **maximum
+  drawdown** from the snapshot date is **≥ `DD_THRESHOLD`** (default
+  **25%**).
+- Also stored per (date, ticker): continuous forward returns at 1m/3m/6m/12m
+  and the forward max-drawdown.
+
+```bash
+# Run the backtest. With no historical store present it generates a SYNTHETIC
+# one so the engine runs end-to-end; feed real parquet (below) for a real run.
+python main.py --backtest
+
+# Options:
+python main.py --backtest \
+  --backtest-start 2018-01-01 --backtest-end 2024-12-31 \
+  --rebalance Q            # M (monthly) or Q (quarterly)
+  --horizon-months 6 \
+  --dd-threshold 0.25 \
+  --portfolio-only         # restrict the panel to IMA holdings
+
+# Honesty guards (placebo / look-ahead / survivorship):
+python -m diagnostics.backtest_sanity
+```
+
+The run writes `output/backtest/panel.parquet` (the per-date×ticker panel) and
+`webapp/public/data/backtest.json` (everything the **Backtest** dashboard tab
+renders), and prints a committee-ready terminal summary.
+
+#### ⚠️ Historical-data constraint (read this — it is not optional)
+
+**yfinance exposes only ~4 quarters of fundamentals.** The fundamental features
+(`altman_z`, `accruals_ratio`, `net_debt_to_ebitda`, `asset_growth_yoy`, …)
+**cannot be reconstructed 7 years back from yfinance.** A deep, multi-year
+backtest of the *fundamental* signal is therefore **only meaningful once you feed
+point-in-time fundamentals** from a proper source (FactSet / S&P Global / manual
+collection). yfinance can reconstruct **prices, momentum and volatility**
+historically — **not fundamentals.** Do not read the synthetic-store numbers as
+evidence the live screener works; they validate the *engine*, not the *signal*.
+
+#### Point-in-time historical store schema (`data/historical/`)
+
+All long-format parquet. Populate these to get real depth; the loader validates
+the schema, reports per-date coverage, and **fails loudly on any look-ahead**
+(a feature row dated after the as-of snapshot raises `LookAheadError`).
+
+| File | Columns | Purpose |
+|---|---|---|
+| `features.parquet` | `date, ticker, Sector,` *all `config.FEATURES`* | point-in-time feature snapshots — **the file you populate for depth** |
+| `universe.parquet` | `date, ticker, in_index (bool)` | point-in-time S&P 600 membership — the **survivorship fix** |
+| `ima_holdings.parquet` | `date, ticker, weight` | IMA portfolio composition over time |
+| `prices.parquet` | `date, ticker, adj_close` | daily prices **including delisted names** |
+| `delistings.parquet` *(optional)* | `ticker, delist_date, final_value` | terminal value so a name that craters to ~zero is captured as an event, not dropped |
+
+**Honesty guards enforced in code** (`diagnostics/backtest_sanity.py`):
+
+- **Look-ahead** — every feature row used for snapshot *d* must be dated `<= d`,
+  else raise.
+- **Survivorship** — if `universe.parquet` is absent the engine **warns** that it
+  is falling back to current membership and that results are survivorship-biased
+  (exactly the flaw a naive backtest hides), and the dashboard disclosure box
+  turns red.
+- **Delisting** — a delisted name's forward return runs to its terminal value
+  and is counted as an event if it qualifies; never silently dropped.
+- **Placebo** — shuffling the composite scores within each cross-section must
+  collapse the IC to ~0; a shuffled score that still "predicts" the label is a
+  tell-tale of label leakage.
+
+#### What the evaluation reports
+
+- **Decile & tier hit-rates** — realized severe-drawdown rate per composite-score
+  decile and per tier (Low Risk / In Line / Elevated), pooled and per-year, with
+  **Wilson 95% CIs** on every cell and **thin-sample flags**. A **monotonicity**
+  test (Elevated > In Line > Low Risk) is THE test of whether the screener works.
+- **Information Coefficient** — per-cross-section Spearman of score vs forward
+  return and vs forward max-DD, averaged **Fama-MacBeth** with a **Newey-West**
+  t-stat.
+- **Classification** — score as a severe-drawdown classifier: **ROC/AUC**, precision /
+  recall / **lift** at each tier threshold.
+- **Calibration** — predicted (score/100) vs realized event rate reliability
+  curve, plus per-tier calibration.
+- **Base-rate honesty** — severe-drawdown events/year and base rate reported up front,
+  with CIs everywhere.
+- **IMA-portfolio-specific** — per-holding hit/miss ledger (model tier at
+  hold-date vs subsequent realized drawdown), the model's average score on IMA
+  holdings vs the universe over time, **named** caught vs missed events the
+  IMA actually held, and a **counterfactual**: would avoiding the model's
+  top-tier holdings have improved the sleeve's return / max-DD?
+- **Strategy backtest** — long-only "avoid the Elevated tier" vs an equal-weight
+  universe benchmark (IJR proxy until a real IJR series is fed), plus a
+  sector-neutral long/short (short Elevated, long Low Risk). Quarterly rebalance,
+  configurable bps cost, **reported turnover**; CAGR, vol, Sharpe, max-DD, hit
+  rate vs benchmark. Survivorship + cost handling stated explicitly.
+
+---
+
 ### Web dashboard (React + Vite + TypeScript)
 
 A full-featured browser dashboard lives under [`webapp/`](webapp/). Every pipeline
@@ -257,6 +378,11 @@ Sections:
   comparison, trajectory classifier, and weighted composite score.
 - **Universe** — the full 600-row risk-scores table with search, tier / sector / IMA filters,
   and column-click sorting.
+- **Backtest** — decile & tier hit-rate bars with a monotonicity callout, IC time series,
+  ROC + AUC, calibration/reliability plot, the IMA holdings hit/miss ledger, and strategy
+  equity curves, behind a prominent disclosure box stating the label definition, survivorship
+  handling, and cost assumptions. Reads `webapp/public/data/backtest.json` (run
+  `python main.py --backtest`).
 - **Clusters** — cluster sizes, tier assignments, k-selection diagnostics, static feature
   profile chart.
 - **PCA** — variance explained, auto-generated PC labels, and a color-coded loadings matrix.
@@ -416,7 +542,7 @@ non-overlapping halves of the window and comparing eigenvectors.
 ### How to run it
 
 **Status:** `main.py`, `config.py`, and `visualization.py` in this repo were
-rewritten for the torpedo screener (Project 2). To run Project 1 you need to
+rewritten for the drawdown screener (Project 2). To run Project 1 you need to
 invoke its modules directly (Python REPL / a notebook) or restore its
 orchestrator. A minimal Python driver looks like:
 

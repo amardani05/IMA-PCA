@@ -1,4 +1,4 @@
-"""IMA Torpedo Screener — orchestrator.
+"""IMA Risk Screener — orchestrator.
 
 Pipeline:
   1. Fetch S&P 600 constituent list.
@@ -7,8 +7,8 @@ Pipeline:
   4. Compute the 14-feature risk matrix; impute; drop sparse rows.
   5. Z-score → PCA (N_PCA_COMPONENTS) with auto-labeled PCs.
   6. k-means over k={3..7} with silhouette-based selection.
-  7. Cluster characterization and tier-labeling by composite risk.
-  8. Per-stock composite score (0-100 percentile mean) with tier buckets.
+  7. Cluster characterization, style names + risk ranks.
+  8. Per-stock composite score with percentile-calibrated risk tiers.
   9. IMA portfolio report and contrarian opportunity screen.
  10. (Optional) Trajectory mapping through PC space over recent quarters.
  11. All charts and CSVs into ``output/``. Terminal-committee summary.
@@ -49,7 +49,7 @@ from scoring import (
 from trajectory import compute_trajectories
 from universe import get_sp600_universe
 
-logger = logging.getLogger("torpedo")
+logger = logging.getLogger("screener")
 
 
 # =============================================================================
@@ -154,7 +154,8 @@ def run_pipeline(args: argparse.Namespace) -> None:
     logger.info("=== STEP 10: Portfolio report ===")
     port_report = build_portfolio_report(
         clean, percentile_ranks, cluster_result.assignments,
-        cluster_result.tier_labels, trajectory,
+        cluster_result.style_labels, trajectory,
+        risk_rank=cluster_result.risk_rank,
     )
 
     # 11. Opportunity screen
@@ -228,6 +229,130 @@ def run_pipeline(args: argparse.Namespace) -> None:
 
 
 # =============================================================================
+# Backtest pipeline
+# =============================================================================
+def run_backtest_pipeline(args: argparse.Namespace) -> None:
+    """Validate-or-synthesize the historical store, run the backtest engine,
+    evaluate it, and export backtest.json for the webapp Backtest tab."""
+    import historical_loader as hl
+    import backtest as bt
+
+    t_start = time.time()
+    logger.info("=== BACKTEST: point-in-time historical store ===")
+    synthetic_store = (config.HISTORICAL_DIR / "SYNTHETIC_STORE").exists()
+    if not config.HIST_FEATURES_PARQUET.exists():
+        logger.warning(
+            "No historical store at %s — generating a SYNTHETIC store so the "
+            "engine can run end-to-end. Feed real point-in-time parquet files "
+            "(see historical_loader docstring / README) for a meaningful run.",
+            config.HISTORICAL_DIR,
+        )
+        store = hl.generate_synthetic_store()
+        synthetic_store = True
+        (config.HISTORICAL_DIR / "SYNTHETIC_STORE").touch()
+    else:
+        store = hl.load_historical_store()
+
+    cfg = bt.BacktestConfig(
+        start=pd.Timestamp(args.backtest_start) if args.backtest_start else None,
+        end=pd.Timestamp(args.backtest_end) if args.backtest_end else None,
+        rebalance=args.rebalance or config.BACKTEST_REBALANCE,
+        horizon_months=args.horizon_months or config.DD_HORIZON_MONTHS,
+        dd_threshold=(
+            args.dd_threshold if args.dd_threshold is not None
+            else config.DD_THRESHOLD
+        ),
+        portfolio_only=args.portfolio_only,
+    )
+    logger.info("=== BACKTEST: running engine (rebalance=%s, horizon=%dm, "
+                "severe-drawdown DD>=%.0f%%) ===",
+                cfg.rebalance, cfg.horizon_months, cfg.dd_threshold * 100)
+    result = bt.run_backtest(store, cfg)
+
+    config.BACKTEST_DIR.mkdir(parents=True, exist_ok=True)
+    result.panel.to_parquet(config.BACKTEST_PANEL_PARQUET, index=False)
+    logger.info("Wrote backtest panel -> %s", config.BACKTEST_PANEL_PARQUET)
+
+    logger.info("=== BACKTEST: evaluation ===")
+    evaluation = bt.evaluate(result)
+    # Honesty flag the dashboard renders as a red banner: synthetic-store
+    # numbers validate the ENGINE, not the signal.
+    evaluation["metadata"]["synthetic_store"] = bool(synthetic_store)
+    (config.BACKTEST_DIR / "backtest.json").write_text(
+        __import__("json").dumps(evaluation, default=str, indent=2)
+    )
+
+    if not args.no_webapp:
+        try:
+            webapp_export.export_backtest(evaluation)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Backtest webapp export failed: %s", exc)
+
+    _print_backtest_report(evaluation)
+    logger.info("Backtest complete in %.1fs", time.time() - t_start)
+
+
+def _print_backtest_report(ev: dict) -> None:
+    md = ev["metadata"]
+    br = ev["base_rate"]
+    tiers = ev["tiers"]
+    ic = ev["information_coefficient"]
+    cl = ev["classification"]
+    print("\n" + "=" * 70)
+    print("RISK SCREENER BACKTEST — severe-drawdown label")
+    print("=" * 70)
+    print(f"Label      : {md['label_definition']}")
+    print(f"Window     : {md['date_range'][0]} .. {md['date_range'][1]} "
+          f"({md['n_snapshots']} snapshots, rebalance={md['rebalance']})")
+    print(f"Survivorship-safe: {md['survivorship_safe']}  |  cost={md['cost_bps']:.0f}bps")
+    print(f"Base rate  : {br['base_rate']:.1%}  "
+          f"({br['n_events']} events / {br['n_observations']} obs, "
+          f"{br['events_per_year']:.0f} events/yr)")
+    print("\nTier hit-rates (realized severe-drawdown rate, Wilson 95% CI):")
+    for b in tiers["pooled"]:
+        flag = "  [THIN]" if b["thin"] else ""
+        print(f"  {b['tier']:<12} {b['rate']:.1%}  "
+              f"[{b['ci_low']:.1%}, {b['ci_high']:.1%}]  n={b['n']}{flag}")
+    print(f"  Monotonic (Elevated > In Line > Low Risk): {tiers['monotonic']}  "
+          f"(Elevated-Low spread {tiers['elevated_minus_low']:+.1%})")
+    print("\nInformation Coefficient (Fama-MacBeth, Newey-West t):")
+    print(f"  IC vs forward return : {ic['ic_return_mean']:+.3f}  (t={ic['ic_return_tstat']:+.2f})")
+    print(f"  IC vs forward max-DD : {ic['ic_maxdd_mean']:+.3f}  (t={ic['ic_maxdd_tstat']:+.2f})")
+    if cl.get("auc") is not None:
+        print(f"\nClassification AUC (score -> severe-DD label): {cl['auc']:.3f}")
+    strat = ev.get("strategy", {})
+    if strat.get("available"):
+        a = strat["avoid_top_tier"]; ls = strat["long_short"]; bm = strat["benchmark"]
+        print("\nStrategy backtest (net of cost):")
+        print(f"  {'':<18}{'CAGR':>8}{'Sharpe':>8}{'MaxDD':>8}{'Turn':>8}")
+        print(f"  {'Benchmark':<18}{_pf(bm['cagr']):>8}{_pf(bm['sharpe'],2):>8}"
+              f"{_pf(bm['max_drawdown']):>8}{'—':>8}")
+        print(f"  {'Avoid top-tier':<18}{_pf(a['cagr']):>8}{_pf(a['sharpe'],2):>8}"
+              f"{_pf(a['max_drawdown']):>8}{_pf(a.get('avg_turnover'),2):>8}")
+        print(f"  {'Sector-neut L/S':<18}{_pf(ls['cagr']):>8}{_pf(ls['sharpe'],2):>8}"
+              f"{_pf(ls['max_drawdown']):>8}{_pf(ls.get('avg_turnover'),2):>8}")
+    ima = ev.get("ima", {})
+    if ima.get("available"):
+        c = ima["confusion"]
+        print(f"\nIMA holdings: caught {len(ima['caught_events'])} / "
+              f"missed {len(ima['missed_events'])} held severe drawdowns  "
+              f"(TP={c['true_positive']} FP={c['false_positive']} "
+              f"FN={c['false_negative']} TN={c['true_negative']})")
+        cf = ima.get("counterfactual", {})
+        if cf.get("available"):
+            print(f"  Avoid-top-tier counterfactual on sleeve: "
+                  f"CAGR {_pf(cf['delta_cagr'])}, max-DD {_pf(cf['delta_maxdd'])} (delta)")
+    print("=" * 70 + "\n")
+
+
+def _pf(x, digits: int = 3) -> str:
+    """digits==3 -> percent (CAGR/MaxDD/turnover); else plain (Sharpe)."""
+    if x is None:
+        return "—"
+    return f"{x*100:.1f}%" if digits == 3 else f"{x:.{digits}f}"
+
+
+# =============================================================================
 # Pitch assessment short-circuit
 # =============================================================================
 def _run_pitch_mode(
@@ -241,8 +366,6 @@ def _run_pitch_mode(
     from pitch_assessor import assess_batch, assess_pitch
 
     output_dir = config.OUTPUT_DIR
-    webapp_pitch_dir = config.PROJECT_ROOT / "webapp" / "public" / "data" / "pitches"
-    webapp_pitch_dir.mkdir(parents=True, exist_ok=True)
 
     if args.assess:
         try:
@@ -250,7 +373,7 @@ def _run_pitch_mode(
                 ticker=args.assess.upper(),
                 pca_result=pca_result,
                 cluster_result=cluster_result,
-                torpedo_features=clean,
+                features=clean,
                 portfolio=config.PORTFOLIO,
                 universe_meta=universe_df,
             )
@@ -259,9 +382,7 @@ def _run_pitch_mode(
             return
         print(a.format_text())
         a.export_json(output_dir / f"pitch_{a.ticker}.json")
-        a.export_json(webapp_pitch_dir / f"{a.ticker}.json")
-        _refresh_pitch_index(webapp_pitch_dir)
-        logger.info("Wrote %s and webapp copy", output_dir / f"pitch_{a.ticker}.json")
+        logger.info("Wrote %s", output_dir / f"pitch_{a.ticker}.json")
 
     if args.assess_batch:
         path = Path(args.assess_batch)
@@ -277,15 +398,11 @@ def _run_pitch_mode(
             tickers=tickers,
             pca_result=pca_result,
             cluster_result=cluster_result,
-            torpedo_features=clean,
+            features=clean,
             portfolio=config.PORTFOLIO,
             universe_meta=universe_df,
             output_dir=output_dir,
         )
-        # Webapp copies
-        for a in results:
-            a.export_json(webapp_pitch_dir / f"{a.ticker}.json")
-        _refresh_pitch_index(webapp_pitch_dir)
 
         # Print a one-line summary per assessment
         print("\n" + "=" * 76)
@@ -294,33 +411,10 @@ def _run_pitch_mode(
         for a in results:
             print(f"  {a.ticker:<6}  {a.recommendation:<22}  "
                   f"score={a.composite_risk_score:>4.0f}  "
-                  f"tier={a.cluster_tier:<10}  "
+                  f"tier={a.risk_tier:<10}  "
                   f"div={a.diversification_score:>4.0f}  "
                   f"({a.sector})")
         print("=" * 76)
-
-
-def _refresh_pitch_index(pitch_dir: Path) -> None:
-    """Build/refresh ``pitches/index.json`` listing every available assessment."""
-    import json as _json
-    rows = []
-    for p in sorted(pitch_dir.glob("*.json")):
-        if p.name == "index.json":
-            continue
-        try:
-            payload = _json.loads(p.read_text())
-            rows.append({
-                "ticker": payload.get("ticker"),
-                "company_name": payload.get("company_name"),
-                "sector": payload.get("sector"),
-                "recommendation": payload.get("recommendation"),
-                "composite_risk_score": payload.get("composite_risk_score"),
-                "cluster_tier": payload.get("cluster_tier"),
-                "generated_at": payload.get("generated_at"),
-            })
-        except Exception:
-            continue
-    (pitch_dir / "index.json").write_text(_json.dumps({"pitches": rows}, indent=2))
 
 
 # =============================================================================
@@ -738,8 +832,8 @@ def _print_macro_report(summary: dict) -> None:
 # =============================================================================
 def _build_drift_alerts(pca_result, cluster_result, trajectory) -> pd.DataFrame:
     dists = nearest_cluster_distance(pca_result.scores, cluster_result)
-    dists["assigned_tier"] = dists["assigned"].map(cluster_result.tier_labels)
-    dists["nearest_other_tier"] = dists["nearest_other"].map(cluster_result.tier_labels)
+    dists["assigned_style"] = dists["assigned"].map(cluster_result.style_labels)
+    dists["nearest_other_style"] = dists["nearest_other"].map(cluster_result.style_labels)
     dists["is_borderline"] = dists["boundary_gap"] < config.CLUSTER_BOUNDARY_RADIUS
 
     alerts = dists.copy()
@@ -781,8 +875,9 @@ def _export_csvs(clean, pca_result, cluster_result, percentile_ranks,
     for pc in pca_result.scores.columns:
         full[pc] = pca_result.scores[pc]
     full["cluster"] = cluster_result.assignments
-    full["cluster_tier"] = full["cluster"].map(cluster_result.tier_labels)
+    full["cluster_style"] = full["cluster"].map(cluster_result.style_labels)
     full["composite_score"] = percentile_ranks["composite_score"]
+    full["score_percentile"] = percentile_ranks["score_percentile"]
     full["risk_tier"] = percentile_ranks["risk_tier"]
     full.to_csv(out / "risk_scores_full.csv")
 
@@ -836,7 +931,7 @@ def _make_charts(clean, pca_result, cluster_result, percentile_ranks,
         )
 
     viz.plot_portfolio_dashboard(percentile_ranks, port_report)
-    viz.plot_cluster_profiles(cluster_result.characterization, cluster_result.tier_labels)
+    viz.plot_cluster_profiles(cluster_result.characterization, cluster_result)
     viz.plot_silhouette_analysis(cluster_result.diagnostics, cluster_result.k)
     viz.plot_pca_loadings(pca_result.loadings, pca_result.pc_labels)
     viz.plot_risk_score_distribution(percentile_ranks, port_tickers)
@@ -862,7 +957,7 @@ def _print_report(clean, pca_result, cluster_result, percentile_ranks,
                   port_report, opportunities, drift_alerts, trajectory) -> None:
     print()
     print("=" * 92)
-    print(" IMA TORPEDO SCREENER — COMMITTEE REPORT")
+    print(" IMA RISK SCREENER — COMMITTEE REPORT")
     print("=" * 92)
 
     print(f" Universe scored          : {len(clean)} stocks with valid features")
@@ -886,8 +981,8 @@ def _print_report(clean, pca_result, cluster_result, percentile_ranks,
           f"(silhouette = {cluster_result.silhouette:.3f})")
     for cid in sorted(cluster_result.assignments.unique()):
         n = int((cluster_result.assignments == cid).sum())
-        tier = cluster_result.tier_labels[int(cid)]
-        print(f"   Cluster {cid} [{tier:<10}]  n={n:3d}")
+        style = cluster_result.style_labels[int(cid)]
+        print(f"   Cluster {cid} [{style:<22}]  n={n:3d}")
     print("-" * 92)
 
     print(" IMA Portfolio — risk summary")
@@ -939,8 +1034,8 @@ def _print_report(clean, pca_result, cluster_result, percentile_ranks,
                 flag_bits.append("CROSSED last Q")
             if row.get("large_2q_drift", False):
                 flag_bits.append(f"2Q drift {row['two_quarter_drift']:.2f}")
-            print(f"   {tk:<6} {row['assigned_tier']:<10} → "
-                  f"{row['nearest_other_tier']:<10}  {' | '.join(flag_bits)}")
+            print(f"   {tk:<6} {row['assigned_style']:<22} → "
+                  f"{row['nearest_other_style']:<22}  {' | '.join(flag_bits)}")
         print("-" * 92)
 
     print(f" Outputs: {config.OUTPUT_DIR}")
@@ -976,7 +1071,7 @@ def _fmt_pct(v) -> str:
 # CLI
 # =============================================================================
 def _parse_args() -> argparse.Namespace:
-    ap = argparse.ArgumentParser(description="IMA torpedo-risk screener")
+    ap = argparse.ArgumentParser(description="IMA drawdown-risk screener")
     ap.add_argument("--refresh", action="store_true",
                     help="Force re-fetch of ALL cached data")
     ap.add_argument("--refresh-features", action="store_true",
@@ -996,6 +1091,21 @@ def _parse_args() -> argparse.Namespace:
                          "(prints + writes output/pitch_<TICKER>.json)")
     ap.add_argument("--assess-batch", type=str, default=None, metavar="FILE",
                     help="File path with one ticker per line; assess all and exit")
+    ap.add_argument("--backtest", action="store_true",
+                    help="Run the screener backtest on the point-in-time "
+                         "historical store (data/historical/), then exit. "
+                         "Generates a synthetic store if none exists.")
+    ap.add_argument("--backtest-start", type=str, default=None, metavar="YYYY-MM-DD",
+                    help="Backtest window start (inclusive)")
+    ap.add_argument("--backtest-end", type=str, default=None, metavar="YYYY-MM-DD",
+                    help="Backtest window end (inclusive)")
+    ap.add_argument("--rebalance", choices=["M", "Q"], default=None,
+                    help="Backtest rebalance cadence (default config.BACKTEST_REBALANCE)")
+    ap.add_argument("--horizon-months", type=int, default=None,
+                    help="Forward horizon for the severe-drawdown label (default config)")
+    ap.add_argument("--dd-threshold", type=float, default=None, metavar="X",
+                    help="Forward max-drawdown threshold for the severe-drawdown "
+                         "label, e.g. 0.25 (default config.DD_THRESHOLD)")
     ap.add_argument("-v", "--verbose", action="store_true")
     return ap.parse_args()
 
@@ -1003,6 +1113,9 @@ def _parse_args() -> argparse.Namespace:
 def main() -> None:
     args = _parse_args()
     _setup_logging(args.verbose)
+    if args.backtest:
+        run_backtest_pipeline(args)
+        return
     run_pipeline(args)
 
 

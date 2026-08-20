@@ -18,6 +18,10 @@ venv/
 /data/macro/
 !data/sp600_fallback.csv
 
+# Point-in-time historical store — user-supplied OR synthetic (regenerated on
+# demand by `python main.py --backtest`); never commit it as if it were real.
+/data/historical/
+
 # Generated outputs (root-level)
 output/
 

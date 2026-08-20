@@ -1,7 +1,10 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Meta, UniverseRow } from "../lib/types";
 import { Column, DataTable } from "./DataTable";
 import { fmt, tierClass } from "../lib/data";
+import { featureDefinition, featureLabel } from "../lib/glossary";
+import { sectorPercentile } from "../lib/assess";
+import { TickerLink } from "../lib/tickerContext";
 
 interface Props {
   meta: Meta;
@@ -16,47 +19,59 @@ export function UniverseView({ meta, universe }: Props) {
   const sectors = Array.from(new Set(universe.map((u) => u.Sector))).sort();
   const [sectorFilter, setSectorFilter] = useState<string>("");
 
+  // Within-sector risk percentile, computed once
+  const secPct = useMemo(() => {
+    const m = new Map<string, number | null>();
+    for (const u of universe) m.set(u.Ticker, sectorPercentile(universe, u));
+    return m;
+  }, [universe]);
+
+  const featCol = (key: string, digits = 2, pct = false): Column<UniverseRow> => ({
+    key,
+    header: featureLabel(key),
+    numeric: true,
+    accessor: (r) => r[key],
+    render: (r) => r[key] != null
+      ? (pct ? `${((r[key] as number) * 100).toFixed(1)}%` : fmt(r[key], digits))
+      : "—",
+  });
+
   const cols: Column<UniverseRow>[] = [
     { key: "Ticker", header: "Ticker", accessor: (r) => r.Ticker,
       render: (r) => (
         <span>
-          <strong>{r.Ticker}</strong>
+          <TickerLink ticker={r.Ticker} />
           {r.is_portfolio && <span style={{ marginLeft: 6, fontSize: 10,
                                              background: "#1f3b73", color: "#fff",
                                              padding: "1px 6px", borderRadius: 3 }}>IMA</span>}
         </span>
       ) },
     { key: "Sector", header: "Sector", accessor: (r) => r.Sector },
-    { key: "composite_score", header: "Score", numeric: true,
-      accessor: (r) => r.composite_score,
-      render: (r) => fmt(r.composite_score, 1),
+    { key: "score_percentile", header: "Risk %ile", numeric: true,
+      accessor: (r) => r.score_percentile,
+      render: (r) => fmt(r.score_percentile, 0),
       defaultSortDesc: true },
     { key: "risk_tier", header: "Tier", accessor: (r) => r.risk_tier,
       render: (r) => <span className={tierClass(r.risk_tier)}>{r.risk_tier}</span> },
-    { key: "cluster", header: "Cluster", numeric: true,
-      accessor: (r) => r.cluster,
-      render: (r) => `${r.cluster} · ${r.cluster_tier}` },
-    { key: "altman_z", header: "Altman Z", numeric: true,
-      accessor: (r) => r.altman_z,
-      render: (r) => fmt(r.altman_z, 2) },
-    { key: "asset_growth_yoy", header: "Asset growth", numeric: true,
-      accessor: (r) => r.asset_growth_yoy,
-      render: (r) => r.asset_growth_yoy != null
-        ? `${(r.asset_growth_yoy * 100).toFixed(1)}%` : "—" },
-    { key: "short_pct_float", header: "Short %", numeric: true,
-      accessor: (r) => r.short_pct_float,
-      render: (r) => fmt(r.short_pct_float, 1) },
-    { key: "momentum_90d", header: "Mom 90d", numeric: true,
-      accessor: (r) => r.momentum_90d,
-      render: (r) => r.momentum_90d != null
-        ? `${(r.momentum_90d * 100).toFixed(1)}%` : "—" },
-    { key: "volatility_60d", header: "Vol 60d", numeric: true,
-      accessor: (r) => r.volatility_60d,
-      render: (r) => r.volatility_60d != null
-        ? `${(r.volatility_60d * 100).toFixed(1)}%` : "—" },
-    { key: "net_debt_to_ebitda", header: "ND/EBITDA", numeric: true,
-      accessor: (r) => r.net_debt_to_ebitda,
-      render: (r) => fmt(r.net_debt_to_ebitda, 2) },
+    { key: "sector_pct", header: "Sector %ile", numeric: true,
+      accessor: (r) => secPct.get(r.Ticker),
+      render: (r) => {
+        const v = secPct.get(r.Ticker);
+        return v != null ? fmt(v, 0) : "—";
+      } },
+    { key: "cluster_style", header: "Style", accessor: (r) => r.cluster_style,
+      render: (r) => (
+        <span className="style-chip"
+              style={{ background: meta.style_colors?.[r.cluster_style] ?? "#666" }}>
+          {r.cluster_style}
+        </span>
+      ) },
+    featCol("altman_z"),
+    featCol("asset_growth_yoy", 1, true),
+    featCol("short_pct_float", 1),
+    featCol("momentum_90d", 1, true),
+    featCol("volatility_60d", 1, true),
+    featCol("net_debt_to_ebitda"),
   ];
 
   const filterFn = (r: UniverseRow, t: string): boolean => {
@@ -75,8 +90,12 @@ export function UniverseView({ meta, universe }: Props) {
     <div>
       <h2 className="section-title">Universe Explorer</h2>
       <p className="section-lede">
-        All {universe.length} S&amp;P 600 stocks with computed features. Click any column header to
-        sort; use filters to narrow to a tier, sector, or just the IMA portfolio.
+        All {universe.length} S&amp;P 600 stocks. <strong>Risk %ile</strong> ranks aggregate
+        statistical risk against today's universe (100 = riskiest); <strong>Sector %ile</strong>{" "}
+        re-ranks within the stock's own sector — the fairer comparison, since scores are not
+        sector-adjusted. Click a <span style={{ color: "var(--accent)", fontWeight: 700 }}>ticker</span>{" "}
+        for the single-name view, hover a column header for its definition. Descriptive, not
+        predictive — none of this is a forecast.
       </p>
 
       <div className="card">
@@ -103,16 +122,47 @@ export function UniverseView({ meta, universe }: Props) {
           </label>
         </div>
 
-        <DataTable
+        <DataTableWithTooltips
           rows={universe}
           columns={cols}
-          initialSortKey="composite_score"
-          pageSize={30}
           filterText={filter}
           filterFn={filterFn}
-          rowClassName={(r) => (r.is_portfolio ? "highlight" : undefined)}
         />
       </div>
     </div>
+  );
+}
+
+/** Wraps DataTable, adding title-attribute tooltips on feature headers. */
+function DataTableWithTooltips(props: {
+  rows: UniverseRow[];
+  columns: Column<UniverseRow>[];
+  filterText: string;
+  filterFn: (r: UniverseRow, t: string) => boolean;
+}) {
+  const columns = props.columns.map((c) => {
+    const def = featureDefinition(c.key);
+    if (def === c.key) return c; // not a model feature
+    return { ...c, header: c.header };
+  });
+  return (
+    <DataTable
+      rows={props.rows}
+      columns={columns}
+      initialSortKey="score_percentile"
+      pageSize={30}
+      filterText={props.filterText}
+      filterFn={props.filterFn}
+      rowClassName={(r) => (r.is_portfolio ? "highlight" : undefined)}
+      headerTitle={(key) => {
+        const def = featureDefinition(key);
+        if (def !== key) return def;
+        if (key === "score_percentile") return "Percentile of the composite risk score within the whole universe. 100 = riskiest. Tiers: bottom 20% Low Risk, middle 60% In Line, top 20% Elevated.";
+        if (key === "sector_pct") return "Percentile of the composite risk score within the stock's own sector — corrects for sector-level differences the model doesn't adjust for.";
+        if (key === "risk_tier") return "Calibrated 20/60/20 buckets of the risk percentile. Relative to today's universe — not an absolute rating.";
+        if (key === "cluster_style") return "Descriptive style grouping from clustering (what the stock statistically looks like). NOT a risk ranking.";
+        return undefined;
+      }}
+    />
   );
 }

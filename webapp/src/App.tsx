@@ -1,9 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { loadAll } from "./lib/data";
 import {
   ClusterMeta, ClusterRow, DriftRow, Meta, OpportunityRow,
   PCALoadingRow, PCASummaryRow, PortfolioRow, TrajectoryData, UniverseRow,
 } from "./lib/types";
+import { TickerOpenContext } from "./lib/tickerContext";
+import { computeFeatureRanks } from "./lib/assess";
 import { Overview } from "./components/Overview";
 import { UniverseView } from "./components/UniverseView";
 import { PortfolioView } from "./components/PortfolioView";
@@ -12,16 +14,19 @@ import { DriftView } from "./components/DriftView";
 import { GalleryView } from "./components/GalleryView";
 import { MacroView } from "./components/MacroView";
 import { PitchView } from "./components/PitchView";
+import { BacktestView } from "./components/BacktestView";
+import { TickerDrawer } from "./components/TickerDrawer";
 
 type Tab =
   | "overview" | "universe" | "portfolio"
-  | "macro" | "opportunities" | "drift" | "pitch" | "gallery";
+  | "macro" | "opportunities" | "drift" | "pitch" | "backtest" | "gallery";
 
 const TABS: { key: Tab; label: string }[] = [
   { key: "overview",      label: "Overview" },
   { key: "portfolio",     label: "Portfolio" },
   { key: "universe",      label: "Universe" },
   { key: "pitch",         label: "Pitch Assessor" },
+  { key: "backtest",      label: "Backtest" },
   { key: "macro",         label: "Macro Exposures" },
   { key: "opportunities", label: "Opportunities" },
   { key: "drift",         label: "Drift Alerts" },
@@ -41,19 +46,51 @@ interface Bundle {
   trajectory: TrajectoryData;
 }
 
+function FreshnessBanner({ meta }: { meta: Meta }) {
+  const generated = new Date(meta.generated_at);
+  const ageDays = (Date.now() - generated.getTime()) / 86_400_000;
+  const stale = ageDays > 4;
+  const ageLabel =
+    ageDays < 1 ? "today"
+    : ageDays < 2 ? "yesterday"
+    : `${Math.floor(ageDays)} days ago`;
+  return (
+    <div className={`freshness${stale ? " stale" : ""}`}>
+      <span className="dot" />
+      <span>
+        Data updated <strong>{ageLabel}</strong>
+        {" "}({generated.toLocaleDateString()} {generated.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })})
+        {stale && " — STALE: the daily refresh has not run for several days; treat scores with caution"}
+      </span>
+      <span style={{ opacity: 0.75 }}>
+        · refreshed automatically each weekday pre-market
+        · short interest is exchange-published on a ~2-week lag
+      </span>
+    </div>
+  );
+}
+
 export default function App() {
   const [data, setData] = useState<Bundle | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>("overview");
+  const [drawerTicker, setDrawerTicker] = useState<string | null>(null);
+  const [pitchTicker, setPitchTicker] = useState<string | null>(null);
 
   useEffect(() => {
     loadAll().then(setData).catch((e) => setErr(String(e)));
   }, []);
 
+  // Per-feature risk percentiles, shared by the drawer and pitch tab.
+  const featureRanks = useMemo(
+    () => (data ? computeFeatureRanks(data.universe) : null),
+    [data],
+  );
+
   if (err) {
     return (
       <div className="app">
-        <div className="top-bar"><h1>IMA Principal Component Analysis</h1></div>
+        <div className="top-bar"><h1>IMA Risk Screener</h1></div>
         <div className="content">
           <div className="card error">
             <strong>Failed to load pipeline data.</strong>
@@ -72,49 +109,75 @@ export default function App() {
   if (!data) {
     return (
       <div className="app">
-        <div className="top-bar"><h1>IMA Principal Component Analysis</h1></div>
+        <div className="top-bar"><h1>IMA Risk Screener</h1></div>
         <div className="loading">Loading pipeline data…</div>
       </div>
     );
   }
 
+  const openPitch = (t: string) => {
+    setDrawerTicker(null);
+    setPitchTicker(t);
+    setTab("pitch");
+  };
+
   return (
-    <div className="app">
-      <div className="top-bar">
-        <h1>IMA Principal Component Analysis</h1>
-        <span className="sub">
-          {data.meta.universe_size} S&amp;P 600 stocks ·
-          k={data.meta.clustering.k} · silhouette {data.meta.clustering.silhouette.toFixed(3)} ·
-          generated {new Date(data.meta.generated_at).toLocaleString()}
-        </span>
+    <TickerOpenContext.Provider value={setDrawerTicker}>
+      <div className="app">
+        <div className="top-bar">
+          <h1>IMA Risk Screener</h1>
+          <span className="sub">
+            S&amp;P 600 drawdown-risk monitor · {data.meta.universe_size} stocks
+            · {data.meta.n_portfolio} IMA holdings
+          </span>
+        </div>
+        <FreshnessBanner meta={data.meta} />
+        <nav className="nav">
+          {TABS.map((t) => (
+            <button key={t.key}
+                    className={tab === t.key ? "active" : ""}
+                    onClick={() => setTab(t.key)}>
+              {t.label}
+            </button>
+          ))}
+        </nav>
+        <main className="content">
+          {tab === "overview"     && <Overview
+                                               meta={data.meta}
+                                               portfolio={data.portfolio}
+                                               universe={data.universe}
+                                               clusterMeta={data.clusterMeta}
+                                               trajectory={data.trajectory}
+                                               pcaSummary={data.pcaSummary}
+                                               pcaLoadings={data.pcaLoadings}
+                                               clusters={data.clusters} />}
+          {tab === "universe"     && <UniverseView meta={data.meta} universe={data.universe} />}
+          {tab === "portfolio"    && <PortfolioView meta={data.meta} portfolio={data.portfolio} />}
+          {tab === "macro"        && <MacroView portfolio={data.portfolio} universe={data.universe} />}
+          {tab === "pitch"        && <PitchView meta={data.meta}
+                                               universe={data.universe}
+                                               clusterMeta={data.clusterMeta}
+                                               trajectory={data.trajectory}
+                                               initialTicker={pitchTicker} />}
+          {tab === "backtest"     && <BacktestView />}
+          {tab === "opportunities"&& <OpportunitiesView opportunities={data.opportunities} />}
+          {tab === "drift"        && <DriftView drift={data.drift} meta={data.meta} />}
+          {tab === "gallery"      && <GalleryView />}
+        </main>
+
+        {drawerTicker && featureRanks && (
+          <TickerDrawer
+            ticker={drawerTicker}
+            universe={data.universe}
+            meta={data.meta}
+            clusterMeta={data.clusterMeta}
+            trajectory={data.trajectory}
+            featureRanks={featureRanks}
+            onClose={() => setDrawerTicker(null)}
+            onOpenPitch={openPitch}
+          />
+        )}
       </div>
-      <nav className="nav">
-        {TABS.map((t) => (
-          <button key={t.key}
-                  className={tab === t.key ? "active" : ""}
-                  onClick={() => setTab(t.key)}>
-            {t.label}
-          </button>
-        ))}
-      </nav>
-      <main className="content">
-        {tab === "overview"     && <Overview
-                                             meta={data.meta}
-                                             portfolio={data.portfolio}
-                                             universe={data.universe}
-                                             clusterMeta={data.clusterMeta}
-                                             trajectory={data.trajectory}
-                                             pcaSummary={data.pcaSummary}
-                                             pcaLoadings={data.pcaLoadings}
-                                             clusters={data.clusters} />}
-        {tab === "universe"     && <UniverseView meta={data.meta} universe={data.universe} />}
-        {tab === "portfolio"    && <PortfolioView meta={data.meta} portfolio={data.portfolio} />}
-        {tab === "macro"        && <MacroView portfolio={data.portfolio} universe={data.universe} />}
-        {tab === "pitch"        && <PitchView meta={data.meta} />}
-        {tab === "opportunities"&& <OpportunitiesView opportunities={data.opportunities} />}
-        {tab === "drift"        && <DriftView drift={data.drift} />}
-        {tab === "gallery"      && <GalleryView />}
-      </main>
-    </div>
+    </TickerOpenContext.Provider>
   );
 }

@@ -9,18 +9,11 @@
   --warn: #f0a202;
   --ok: #2c7a4b;
 
-  /* Stoplight palette — the three tiers are visually unambiguous and
-     ordered intuitively (green → amber → red). Mainstream was previously
-     light green and visually melted into Stable on the scatter. */
-  --tier-stable: #2c7a4b;
-  --tier-mainstream: #d4a017;
-  --tier-elevated: #b3001b;
-  /* Legacy 5-tier palette retained so older cached payloads still render */
-  --tier-low: #2c7a4b;
-  --tier-mod: #7fb069;
-  --tier-elev: #f0a202;
-  --tier-high: #e57a44;
-  --tier-crit: #b3001b;
+  /* Risk-tier palette — only the tails carry color; the middle 60% is a
+     neutral slate so "In Line" never reads as a warning. */
+  --tier-low: #2c7a4b;      /* Low Risk  (bottom 20% of composite pctile) */
+  --tier-inline: #64748b;   /* In Line   (middle 60%) */
+  --tier-elevated: #b3001b; /* Elevated  (top 20%) */
 }
 
 * { box-sizing: border-box; }
@@ -149,15 +142,54 @@ table.data tr.highlight:hover { background: #fff4d6; }
   font-weight: 600;
   letter-spacing: 0.3px;
 }
-.tier-stable     { background: var(--tier-stable); }
-.tier-mainstream { background: var(--tier-mainstream); color: #1a202c; }
-.tier-elevated   { background: var(--tier-elevated); }
-/* Legacy 5-tier classes (kept for any pre-cleanup payloads) */
-.tier-low  { background: var(--tier-low); }
-.tier-mod  { background: var(--tier-mod); color: #1a202c; }
-.tier-elev { background: var(--tier-elev); color: #1a202c; }
-.tier-high { background: var(--tier-high); }
-.tier-crit { background: var(--tier-crit); }
+.tier-low      { background: var(--tier-low); }
+.tier-inline   { background: var(--tier-inline); }
+.tier-elevated { background: var(--tier-elevated); }
+
+/* ======== Cluster style chips (descriptive groupings, not risk) ======== */
+.style-chip {
+  display: inline-block; padding: 1px 8px; border-radius: 10px;
+  font-size: 11px; font-weight: 600; color: #fff; white-space: nowrap;
+}
+
+/* ======== Freshness banner ======== */
+.freshness {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 6px 28px; font-size: 12px;
+  background: #eef2f7; color: #44515e; border-bottom: 1px solid var(--border);
+}
+.freshness.stale { background: #fdeeee; color: #8c1d18; }
+.freshness .dot { width: 8px; height: 8px; border-radius: 4px; background: #2c7a4b; }
+.freshness.stale .dot { background: #b3001b; }
+
+/* ======== Ticker drawer ======== */
+.drawer-backdrop {
+  position: fixed; inset: 0; background: rgba(15, 23, 32, 0.35); z-index: 40;
+}
+.drawer {
+  position: fixed; top: 0; right: 0; bottom: 0; width: min(480px, 94vw);
+  background: #fff; z-index: 41; box-shadow: -6px 0 24px rgba(0,0,0,0.18);
+  overflow-y: auto; padding: 18px 20px 32px;
+}
+.drawer h2 { margin: 0; font-size: 22px; }
+.drawer .drawer-sub { color: var(--muted); font-size: 13px; margin-top: 2px; }
+.drawer .close-btn {
+  position: absolute; top: 12px; right: 14px; border: none; background: none;
+  font-size: 20px; color: var(--muted); cursor: pointer; line-height: 1;
+}
+.drawer section { margin-top: 18px; }
+.drawer section h4 {
+  margin: 0 0 8px; font-size: 11px; text-transform: uppercase;
+  letter-spacing: 0.6px; color: var(--muted);
+}
+.drawer .bar-row { display: flex; align-items: center; gap: 8px; padding: 2px 0; font-size: 12px; }
+.drawer .bar-row .bar-label { min-width: 150px; }
+.drawer .bar-row .bar-track { flex: 1; background: #f0f2f6; border-radius: 4px; height: 12px; }
+.drawer .bar-row .bar-fill { height: 100%; border-radius: 4px; }
+.drawer .bar-row .bar-val { min-width: 30px; text-align: right; font-variant-numeric: tabular-nums; }
+
+/* Glossary tooltips: header cells / labels that carry a definition */
+[data-hint] { cursor: help; border-bottom: 1px dotted #9aa7b4; }
 
 /* ======== Filter bar ======== */
 .filter-bar { display: flex; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; align-items: center; }

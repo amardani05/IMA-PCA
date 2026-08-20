@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.ima.pca.daily</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/zsh</string>
+    <string>/Users/amardani/IMA-PCA/scripts/daily_update.sh</string>
+  </array>
+  <!-- Weekday mornings at 07:30 local time — staggered after the Sell-Model
+       refresh (06:45, ~30 min) so the two pipelines don't hit yfinance
+       concurrently. If the Mac is asleep at 07:30, launchd runs the job at
+       the next wake; if it is shut down, the day is skipped and the site
+       keeps the previous data. -->
+  <key>StartCalendarInterval</key>
+  <array>
+    <dict><key>Weekday</key><integer>1</integer><key>Hour</key><integer>7</integer><key>Minute</key><integer>30</integer></dict>
+    <dict><key>Weekday</key><integer>2</integer><key>Hour</key><integer>7</integer><key>Minute</key><integer>30</integer></dict>
+    <dict><key>Weekday</key><integer>3</integer><key>Hour</key><integer>7</integer><key>Minute</key><integer>30</integer></dict>
+    <dict><key>Weekday</key><integer>4</integer><key>Hour</key><integer>7</integer><key>Minute</key><integer>30</integer></dict>
+    <dict><key>Weekday</key><integer>5</integer><key>Hour</key><integer>7</integer><key>Minute</key><integer>30</integer></dict>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/Users/amardani/.npm-global/bin:/Users/amardani/anaconda3/bin:/usr/local/bin:/usr/bin:/bin</string>
+    <key>HOME</key>
+    <string>/Users/amardani</string>
+  </dict>
+  <key>StandardOutPath</key>
+  <string>/Users/amardani/IMA-PCA/output/daily/launchd.out</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/amardani/IMA-PCA/output/daily/launchd.err</string>
+  <key>RunAtLoad</key>
+  <false/>
+</dict>
+</plist>

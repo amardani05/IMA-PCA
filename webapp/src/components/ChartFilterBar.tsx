@@ -62,18 +62,22 @@ export function ChartFilterBar({ filters, setFilters, meta, universe }: Props) {
       <div style={{ borderLeft: "1px solid var(--border)", height: 22, margin: "0 4px" }} />
 
       <span style={{ fontSize: 11, color: "var(--muted)", textTransform: "uppercase",
-                     letterSpacing: 0.5, fontWeight: 600 }}>Tiers</span>
-      {meta.tier_order.map((t) => (
+                     letterSpacing: 0.5, fontWeight: 600 }}
+            data-hint
+            title="Descriptive style clusters — statistical groupings, not risk ratings.">
+        Styles
+      </span>
+      {meta.style_order.map((t) => (
         <button key={t} onClick={() => toggleTier(t)} style={{
           ...chip,
-          borderColor: tierActive(t) ? meta.tier_colors[t] : "var(--border)",
-          background: filters.tiers.has(t) ? meta.tier_colors[t] : "#fff",
+          borderColor: tierActive(t) ? meta.style_colors[t] : "var(--border)",
+          background: filters.tiers.has(t) ? meta.style_colors[t] : "#fff",
           color: filters.tiers.has(t) ? "#fff" : "var(--text)",
           opacity: filters.tiers.size === 0 || filters.tiers.has(t) ? 1 : 0.4,
         }}>
           <span style={{
             display: "inline-block", width: 8, height: 8, borderRadius: 4,
-            background: meta.tier_colors[t], marginRight: 6,
+            background: meta.style_colors[t], marginRight: 6,
           }} />
           {t}
         </button>

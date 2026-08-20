@@ -1,45 +1,36 @@
-import { useEffect, useState } from "react";
-import {
-  PitchAssessment,
-  PitchIndexRow,
-  loadPitch,
-  loadPitchIndex,
-  recommendationColor,
-} from "../lib/pitch";
+import { useEffect, useMemo, useState } from "react";
+import { PitchAssessment, recommendationColor } from "../lib/pitch";
+import { buildAssessment, computeFeatureRanks } from "../lib/assess";
 import { tierClass, fmt } from "../lib/data";
-import { Meta } from "../lib/types";
+import { featureLong, featureDefinition, ordinal } from "../lib/glossary";
+import { ClusterMeta, Meta, TrajectoryData, UniverseRow } from "../lib/types";
 
 interface Props {
   meta: Meta;
+  universe: UniverseRow[];
+  clusterMeta: ClusterMeta;
+  trajectory?: TrajectoryData | null;
+  initialTicker?: string | null;
 }
 
-export function PitchView({ meta }: Props) {
-  const [search, setSearch] = useState("");
-  const [active, setActive] = useState<string | null>(null);
-  const [pitch, setPitch] = useState<PitchAssessment | null>(null);
-  const [pitchErr, setPitchErr] = useState<string | null>(null);
-  const [index, setIndex] = useState<PitchIndexRow[]>([]);
-  const [loading, setLoading] = useState(false);
+export function PitchView({ meta, universe, clusterMeta, trajectory, initialTicker }: Props) {
+  const [search, setSearch] = useState(initialTicker ?? "");
+  const [active, setActive] = useState<string | null>(initialTicker ?? null);
+
+  // Ranks are the only expensive part — compute once per session.
+  const featureRanks = useMemo(() => computeFeatureRanks(universe), [universe]);
 
   useEffect(() => {
-    loadPitchIndex().then((rows) => setIndex(rows ?? []));
-  }, []);
+    if (initialTicker) {
+      setSearch(initialTicker);
+      setActive(initialTicker);
+    }
+  }, [initialTicker]);
 
-  useEffect(() => {
-    if (!active) return;
-    setLoading(true);
-    setPitchErr(null);
-    loadPitch(active).then((p) => {
-      if (!p) {
-        setPitchErr(
-          `No pitch assessment found for ${active}. Generate it from the CLI:\n` +
-          `  python main.py --assess ${active}`
-        );
-      }
-      setPitch(p);
-      setLoading(false);
-    });
-  }, [active]);
+  const result = useMemo(() => {
+    if (!active) return null;
+    return buildAssessment(active, { universe, meta, clusterMeta, trajectory, featureRanks });
+  }, [active, universe, meta, clusterMeta, trajectory, featureRanks]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -47,25 +38,34 @@ export function PitchView({ meta }: Props) {
     if (t) setActive(t);
   };
 
+  // Typeahead: matching universe rows for a partial query
+  const suggestions = useMemo(() => {
+    const q = search.trim().toUpperCase();
+    if (!q || (result && "ticker" in result && result.ticker === q)) return [];
+    return universe
+      .filter((u) =>
+        u.Ticker.startsWith(q) ||
+        (u.Company ?? "").toUpperCase().includes(q))
+      .slice(0, 8);
+  }, [search, universe, result]);
+
   return (
     <div>
       <h2 className="section-title">Pitch assessor</h2>
       <p className="section-lede">
-        Translates the PCA + clustering output into a structured one-pager
-        suitable for committee discussion. Pre-generate the assessment from the
-        CLI (the webapp can only display assessments that have been written to
-        <code> webapp/public/data/pitches/</code>):
-        <br />
-        <code style={{ background: "#f0f2f6", padding: "2px 6px", borderRadius: 3 }}>
-          python main.py --assess TICKER
-        </code>
+        Type any S&amp;P 600 ticker to get an instant statistical read on it as a
+        <em> candidate</em>: how similar it is to what the fund already owns, where
+        it sits in the risk model, and what to address in committee. Assessments
+        are computed live from the latest pipeline run — every universe name works.
+        This is a screen, not a verdict: it has no view on the business, only on
+        the statistics.
       </p>
 
       <div className="card" style={{ padding: 14 }}>
         <form onSubmit={handleSubmit} style={{ display: "flex", gap: 8 }}>
           <input
             type="search"
-            placeholder="Search a ticker (e.g. CRGY, MYRG, PRDO)…"
+            placeholder="Search a ticker or company (e.g. TDS, Shenandoah, IRDM)…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             style={{ flex: 1, padding: "8px 12px", fontSize: 14,
@@ -75,48 +75,37 @@ export function PitchView({ meta }: Props) {
             padding: "8px 18px", fontSize: 14, fontWeight: 500,
             background: "var(--accent)", color: "#fff", border: "none",
             borderRadius: 6, cursor: "pointer",
-          }}>Open</button>
+          }}>Assess</button>
         </form>
 
-        {index.length > 0 && (
-          <div style={{ marginTop: 14 }}>
-            <div style={{ fontSize: 11, color: "var(--muted)", textTransform: "uppercase",
-                           letterSpacing: 0.5, fontWeight: 600, marginBottom: 6 }}>
-              Recently generated ({index.length})
-            </div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-              {index.slice().sort((a, b) => b.generated_at.localeCompare(a.generated_at)).map((row) => (
-                <button key={row.ticker} onClick={() => { setSearch(row.ticker); setActive(row.ticker); }}
-                        style={{
-                          padding: "5px 10px", fontSize: 12,
-                          border: "1px solid var(--border)", borderRadius: 14,
-                          background: active === row.ticker ? "var(--accent)" : "#fff",
-                          color: active === row.ticker ? "#fff" : "var(--text)",
-                          cursor: "pointer",
-                        }}
-                        title={`${row.company_name} · ${row.sector} · ${row.recommendation}`}>
-                  {row.ticker}
-                  <span style={{
-                    marginLeft: 6, padding: "0 5px", borderRadius: 8, fontSize: 10,
-                    background: recommendationColor(row.recommendation),
-                    color: "#fff",
-                  }}>{row.recommendation.split(" ")[0]}</span>
-                </button>
-              ))}
-            </div>
+        {suggestions.length > 0 && (
+          <div style={{ marginTop: 10, display: "flex", flexWrap: "wrap", gap: 6 }}>
+            {suggestions.map((u) => (
+              <button key={u.Ticker}
+                      onClick={() => { setSearch(u.Ticker); setActive(u.Ticker); }}
+                      style={{
+                        padding: "5px 10px", fontSize: 12,
+                        border: "1px solid var(--border)", borderRadius: 14,
+                        background: "#fff", cursor: "pointer",
+                      }}
+                      title={`${u.Company ?? ""} · ${u.Sector}`}>
+                <strong>{u.Ticker}</strong>
+                <span style={{ color: "var(--muted)", marginLeft: 6 }}>
+                  {(u.Company ?? "").slice(0, 28)}
+                </span>
+              </button>
+            ))}
           </div>
         )}
       </div>
 
-      {pitchErr && (
+      {result && "error" in result && (
         <div className="card error" style={{ marginTop: 12 }}>
-          <pre style={{ margin: 0, whiteSpace: "pre-wrap" }}>{pitchErr}</pre>
+          <p style={{ margin: 0 }}>{result.error}</p>
         </div>
       )}
 
-      {loading && <div className="loading">Loading {active}…</div>}
-
-      {pitch && !loading && <PitchPage pitch={pitch} meta={meta} />}
+      {result && !("error" in result) && <PitchPage pitch={result} meta={meta} />}
     </div>
   );
 }
@@ -138,7 +127,7 @@ function PitchPage({ pitch, meta }: { pitch: PitchAssessment; meta: Meta }) {
               {pitch.company_name}
             </div>
             <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 4 }}>
-              {pitch.sector} / {pitch.industry || "—"}  ·  Market cap {cap}
+              {pitch.sector}{pitch.industry ? ` / ${pitch.industry}` : ""}  ·  Market cap {cap}
             </div>
           </div>
           <div style={{ textAlign: "right" }}>
@@ -168,7 +157,7 @@ function PitchPage({ pitch, meta }: { pitch: PitchAssessment; meta: Meta }) {
         <div className="card">
           <h3 style={{ margin: 0 }}>Nearest neighbors</h3>
           <div className="card-sub">
-            5 closest stocks in PC space.
+            5 statistically closest stocks in PC space.
             {pitch.n_neighbors_currently_held > 0 && (
               <> <strong>{pitch.n_neighbors_currently_held}</strong> currently held.</>
             )}
@@ -185,7 +174,6 @@ function PitchPage({ pitch, meta }: { pitch: PitchAssessment; meta: Meta }) {
                   <td className="num">{n.distance.toFixed(2)}</td>
                   <td>
                     {n.is_held && <span style={badgeHeld}>HELD</span>}
-                    {n.is_former_hold && <span style={badgeFormer}>FORMER</span>}
                   </td>
                 </tr>
               ))}
@@ -198,6 +186,7 @@ function PitchPage({ pitch, meta }: { pitch: PitchAssessment; meta: Meta }) {
           <h3 style={{ margin: 0 }}>Portfolio differentiation</h3>
           <div className="card-sub">
             Diversification score: <strong>{pitch.diversification_score.toFixed(0)}/100</strong>
+            {" "}— how far the name sits from the portfolio's center of gravity.
           </div>
           <table className="data" style={{ marginTop: 6 }}>
             <thead>
@@ -234,24 +223,31 @@ function PitchPage({ pitch, meta }: { pitch: PitchAssessment; meta: Meta }) {
         <h3 style={{ margin: 0 }}>Risk profile</h3>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
                        gap: 12, marginTop: 8 }}>
-          <Stat label="Cluster" value={`C${pitch.cluster_id}`} sub={pitch.cluster_tier}
-                tierBadge={pitch.cluster_tier} />
-          <Stat label="Composite score" value={pitch.composite_risk_score.toFixed(0) + "/100"} />
-          <Stat label="Trajectory" value={pitch.cluster_trajectory} />
+          <Stat label="Risk tier"
+                value={pitch.risk_tier}
+                sub={`${ordinal(Math.round(pitch.score_percentile))} pctile of universe`}
+                tierBadge={pitch.risk_tier} />
+          <Stat label="Style cluster" value={pitch.cluster_style}
+                sub={`cluster C${pitch.cluster_id} — descriptive, not a risk rank`} />
+          <Stat label="Trajectory" value={pitch.cluster_trajectory}
+                sub="direction through risk space, last 4 quarters" />
           <Stat label="vs sector" value={pitch.sector_comparison}
-                sub={`median ${fmt(pitch.sector_median_score, 1)}`} />
+                sub={`sector median score ${fmt(pitch.sector_median_score, 1)}`} />
         </div>
 
         {pitch.top_risk_drivers.length > 0 && (
           <div style={{ marginTop: 12 }}>
             <div style={{ fontSize: 11, color: "var(--muted)", textTransform: "uppercase",
                            letterSpacing: 0.5, fontWeight: 600, marginBottom: 4 }}>
-              Top risk drivers (percentile rank in universe)
+              Top risk drivers (percentile rank in universe — 100 = riskiest)
             </div>
             {pitch.top_risk_drivers.map((d) => (
               <div key={d.feature} style={{ display: "flex", alignItems: "center",
                                               gap: 10, padding: "3px 0" }}>
-                <code style={{ minWidth: 160 }}>{d.feature}</code>
+                <span data-hint title={featureDefinition(d.feature)}
+                      style={{ minWidth: 220, fontSize: 13 }}>
+                  {featureLong(d.feature)}
+                </span>
                 <div style={{ flex: 1, background: "#f0f2f6", borderRadius: 4, height: 14 }}>
                   <div style={{
                     width: `${d.percentile}%`, height: "100%",
@@ -272,7 +268,8 @@ function PitchPage({ pitch, meta }: { pitch: PitchAssessment; meta: Meta }) {
       </div>
 
       <div style={{ fontSize: 11, color: "var(--muted)", textAlign: "right", marginTop: 6 }}>
-        Generated {new Date(pitch.generated_at).toLocaleString()}
+        Computed live from the pipeline run of {new Date(pitch.generated_at).toLocaleString()}.
+        Statistical screen only — validate with fundamental work.
       </div>
     </div>
   );
@@ -284,7 +281,7 @@ function Stat({ label, value, sub, tierBadge }: { label: string; value: string; 
     <div style={{ background: "#f7f8fa", borderRadius: 6, padding: 10 }}>
       <div style={{ fontSize: 10, color: "var(--muted)", textTransform: "uppercase",
                      letterSpacing: 0.5, fontWeight: 600 }}>{label}</div>
-      <div style={{ fontSize: 18, fontWeight: 600, marginTop: 4 }}>
+      <div style={{ fontSize: 16, fontWeight: 600, marginTop: 4 }}>
         {tierBadge ? <span className={tierClass(tierBadge)} style={{ fontSize: 12 }}>{value}</span> : value}
       </div>
       {sub && <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>{sub}</div>}
@@ -296,7 +293,4 @@ function Stat({ label, value, sub, tierBadge }: { label: string; value: string; 
 const badgeHeld: React.CSSProperties = {
   padding: "1px 6px", background: "var(--accent)", color: "#fff",
   fontSize: 9, fontWeight: 700, borderRadius: 8,
-};
-const badgeFormer: React.CSSProperties = {
-  ...badgeHeld, background: "var(--muted)",
 };

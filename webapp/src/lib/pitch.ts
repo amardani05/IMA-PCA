@@ -26,8 +26,10 @@ export interface PitchAssessment {
   diversification_score: number;
 
   cluster_id: number;
-  cluster_tier: string;
+  cluster_style: string;
+  risk_tier: string;
   composite_risk_score: number;
+  score_percentile: number;
   top_risk_drivers: { feature: string; percentile: number }[];
   cluster_trajectory: string;
 
@@ -41,37 +43,6 @@ export interface PitchAssessment {
 
   generated_at: string;
   n_neighbors: number;
-}
-
-export interface PitchIndexRow {
-  ticker: string;
-  company_name: string;
-  sector: string;
-  recommendation: string;
-  composite_risk_score: number;
-  cluster_tier: string;
-  generated_at: string;
-}
-
-export async function loadPitchIndex(): Promise<PitchIndexRow[] | null> {
-  try {
-    const r = await fetch("/data/pitches/index.json");
-    if (!r.ok) return null;
-    const j = await r.json();
-    return j.pitches as PitchIndexRow[];
-  } catch {
-    return null;
-  }
-}
-
-export async function loadPitch(ticker: string): Promise<PitchAssessment | null> {
-  try {
-    const r = await fetch(`/data/pitches/${ticker.toUpperCase()}.json`);
-    if (!r.ok) return null;
-    return (await r.json()) as PitchAssessment;
-  } catch {
-    return null;
-  }
 }
 
 export function recommendationColor(rec: string): string {

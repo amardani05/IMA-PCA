@@ -51,18 +51,20 @@ export async function loadPlotlyFigure(name: string): Promise<any> {
   return getJSON<any>(`/interactive/${name}.json`);
 }
 
+// Loaded lazily by BacktestView — absent backtest.json (no `--backtest` run yet)
+// is a soft failure (the tab shows an instruction), not a hard app crash.
+export async function loadBacktest(): Promise<import("./types").BacktestData> {
+  const resp = await fetch("/data/backtest.json");
+  if (!resp.ok) throw new Error(`backtest.json not found (${resp.status})`);
+  return (await resp.json()) as import("./types").BacktestData;
+}
+
 export function tierClass(tier?: string | null): string {
   switch (tier) {
-    // Current 3-tier vocabulary
-    case "Stable":     return "tier-pill tier-stable";
-    case "Mainstream": return "tier-pill tier-mainstream";
-    case "Elevated":   return "tier-pill tier-elevated";
-    // Legacy 5-tier fallback (older cached payloads)
-    case "Low Risk":   return "tier-pill tier-low";
-    case "Moderate":   return "tier-pill tier-mod";
-    case "High":       return "tier-pill tier-high";
-    case "Critical":   return "tier-pill tier-crit";
-    default:           return "tier-pill";
+    case "Low Risk": return "tier-pill tier-low";
+    case "In Line":  return "tier-pill tier-inline";
+    case "Elevated": return "tier-pill tier-elevated";
+    default:         return "tier-pill";
   }
 }
 

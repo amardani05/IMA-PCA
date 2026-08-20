@@ -1,22 +1,30 @@
-import { DriftRow } from "../lib/types";
+import { DriftRow, Meta } from "../lib/types";
 import { Column, DataTable } from "./DataTable";
-import { fmt, tierClass } from "../lib/data";
+import { fmt } from "../lib/data";
+import { TickerLink } from "../lib/tickerContext";
 
-export function DriftView({ drift }: { drift: DriftRow[] }) {
+export function DriftView({ drift, meta }: { drift: DriftRow[]; meta: Meta }) {
+  const styleChip = (style: string) => (
+    <span className="style-chip"
+          style={{ background: meta.style_colors?.[style] ?? "#666" }}>
+      {style}
+    </span>
+  );
+
   const cols: Column<DriftRow>[] = [
     { key: "Ticker", header: "Ticker", accessor: (r) => r.Ticker,
       render: (r) => (
         <span>
-          <strong>{r.Ticker}</strong>
+          <TickerLink ticker={r.Ticker} />
           {r.is_portfolio && <span style={{ marginLeft: 6, fontSize: 10,
             background: "#1f3b73", color: "#fff",
             padding: "1px 6px", borderRadius: 3 }}>IMA</span>}
         </span>
       ) },
-    { key: "assigned_tier", header: "Current tier", accessor: (r) => r.assigned_tier,
-      render: (r) => <span className={tierClass(r.assigned_tier)}>{r.assigned_tier}</span> },
-    { key: "nearest_other_tier", header: "Nearest other", accessor: (r) => r.nearest_other_tier,
-      render: (r) => <span className={tierClass(r.nearest_other_tier)}>{r.nearest_other_tier}</span> },
+    { key: "assigned_style", header: "Current cluster", accessor: (r) => r.assigned_style,
+      render: (r) => styleChip(r.assigned_style) },
+    { key: "nearest_other_style", header: "Nearest other", accessor: (r) => r.nearest_other_style,
+      render: (r) => styleChip(r.nearest_other_style) },
     { key: "boundary_gap", header: "Boundary gap", numeric: true,
       accessor: (r) => r.boundary_gap, render: (r) => fmt(r.boundary_gap, 2) },
     { key: "two_quarter_drift", header: "2Q drift", numeric: true,
@@ -39,9 +47,12 @@ export function DriftView({ drift }: { drift: DriftRow[] }) {
     <div>
       <h2 className="section-title">Drift alerts</h2>
       <p className="section-lede">
-        Stocks that either sit close to a cluster boundary, crossed into a new cluster last quarter,
-        or moved more than 1.5σ through PC space over the last two quarters. Portfolio names are
-        pinned to the top.
+        An attention list, not a signal: stocks whose statistical profile is on
+        the move — sitting close to a cluster boundary, having crossed into a new
+        cluster last quarter, or having moved more than 1.5σ through risk space
+        over two quarters. Borderline names can also flip between runs simply
+        because cluster boundaries are soft. Portfolio names are pinned to the top;
+        click a ticker to see what changed.
       </p>
 
       <div className="card">

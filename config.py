@@ -1,4 +1,4 @@
-"""Configuration for the IMA torpedo-risk screener.
+"""Configuration for the IMA drawdown-risk screener.
 
 Holds the current IMA portfolio, the feature taxonomy for the risk model,
 risk-direction metadata used to rank clusters, PCA/clustering hyperparameters,
@@ -114,15 +114,32 @@ K_CANDIDATES: tuple[int, ...] = (3, 4, 5, 6, 7)
 KMEANS_N_INIT: int = 50
 SILHOUETTE_TOLERANCE: float = 0.05  # widened so k=3 is preferred over noisy k=4 wins
 
-# Three tiers because we have three clusters; labels honest about granularity.
-# Cluster labels are calibrated to the *current universe*, not absolute risk.
-# Composite score percentile is the granular measure (see SCORE_BUCKETS).
-TIER_LABELS: list[str] = ["Stable", "Mainstream", "Elevated"]
+# Risk tiers are cut on the composite score's PERCENTILE within the scored
+# cross-section, not on the raw composite. The raw composite (a mean of 16
+# percentile ranks) concentrates near 50 by construction, so fixed raw-score
+# buckets left ~97% of the universe in one bucket (2026-08 review, finding A2).
+# Percentile buckets guarantee a calibrated 20 / 60 / 20 split by design.
+# Labels are relative to the *current universe* — not absolute risk ratings.
+TIER_LABELS: list[str] = ["Low Risk", "In Line", "Elevated"]
 
-SCORE_BUCKETS: list[tuple[float, float, str]] = [
-    (0, 30, "Stable"),
-    (30, 70, "Mainstream"),
-    (70, 100.01, "Elevated"),
+TIER_PERCENTILE_BUCKETS: list[tuple[float, float, str]] = [
+    (0, 20, "Low Risk"),
+    (20, 80, "In Line"),
+    (80, 100.01, "Elevated"),
+]
+
+# k-means clusters are DESCRIPTIVE style groupings, not a risk ranking; they
+# get style names ("Core", "High-Multiple Growth", ...) generated from each
+# cluster's feature signature (see pca_cluster._style_clusters). Chart colors
+# are assigned from this palette in cluster-risk-rank order (safest first).
+CLUSTER_STYLE_PALETTE: list[str] = [
+    "#4a7fb5",  # steel blue
+    "#8a63bf",  # violet
+    "#c05621",  # burnt orange
+    "#8c1d18",  # oxblood
+    "#5f6b76",  # slate (overflow)
+    "#2c7a4b",  # green (overflow)
+    "#946800",  # ochre (overflow)
 ]
 
 # -----------------------------------------------------------------------------
@@ -147,7 +164,7 @@ FINANCIAL_SECTORS: set[str] = {"Financials", "Financial Services", "Real Estate"
 # -----------------------------------------------------------------------------
 # SEC EDGAR settings
 # -----------------------------------------------------------------------------
-SEC_USER_AGENT: str = "IMA-Torpedo-Screener/1.0 (Student research; dani@navaslabs.com)"
+SEC_USER_AGENT: str = "IMA-Risk-Screener/1.0 (Student research; dani@navaslabs.com)"
 SEC_RATE_LIMIT_PER_SECOND: int = 8        # stay under 10/sec cap with margin
 SEC_TICKER_MAP_URL: str = "https://www.sec.gov/files/company_tickers.json"
 SEC_SUBMISSIONS_URL: str = "https://data.sec.gov/submissions/CIK{cik}.json"
@@ -174,6 +191,52 @@ CACHE_MAX_AGE_SECONDS: int = 24 * 60 * 60
 SP600_WIKI_URL: str = "https://en.wikipedia.org/wiki/List_of_S%26P_600_companies"
 
 USER_AGENT: str = (
-    "IMA-Torpedo-Screener/1.0 (Student-run equity fund; "
+    "IMA-Risk-Screener/1.0 (Student-run equity fund; "
     "contact: dani@navaslabs.com)"
 )
+
+# -----------------------------------------------------------------------------
+# Backtest / severe-drawdown label settings
+# -----------------------------------------------------------------------------
+# THE SEVERE-DRAWDOWN LABEL.  A name is a "severe-drawdown event" if, over the
+# forward horizon, it suffers a peak-to-trough drawdown (measured from the
+# snapshot date forward) at or beyond DD_THRESHOLD.  Both constants are the
+# knobs the whole evaluation hangs on, so they live here and nowhere else.
+DD_HORIZON_MONTHS: int = 6               # forward window for the primary label
+DD_THRESHOLD: float = 0.25               # >= 25% forward max drawdown == event
+
+# Continuous forward-return horizons stored alongside the binary label (months).
+FORWARD_RETURN_HORIZONS_MONTHS: tuple[int, ...] = (1, 3, 6, 12)
+
+# Rebalance cadence for the backtest panel: "M" (month-end) or "Q" (quarter-end).
+BACKTEST_REBALANCE: str = "Q"
+
+# Strategy backtest assumptions (be explicit — these are reported in the webapp).
+BACKTEST_COST_BPS: float = 10.0          # one-way transaction cost, basis points
+BACKTEST_TOP_TIER: str = "Elevated"      # tier the long-only sleeve AVOIDS / shorts
+BACKTEST_BOTTOM_TIER: str = "Low Risk"   # tier the long/short sleeve goes long
+
+# Cells (decile / tier) with fewer than this many realized events are flagged
+# as thin-sample and their hit-rates are reported but de-emphasized.
+MIN_EVENTS_PER_CELL: int = 5
+
+# Trading days per calendar month — used to convert horizon months to a price
+# window and to annualize the strategy backtest.
+TRADING_DAYS_PER_MONTH: int = 21
+TRADING_DAYS_PER_YEAR: int = 252
+
+# -----------------------------------------------------------------------------
+# Point-in-time historical store (see historical_loader.py for the schema).
+# Populate these parquet files to get deep-history backtests; absent files
+# trigger loud survivorship / coverage warnings rather than silent fallbacks.
+# -----------------------------------------------------------------------------
+HISTORICAL_DIR: Path = DATA_DIR / "historical"
+HIST_FEATURES_PARQUET: Path = HISTORICAL_DIR / "features.parquet"
+HIST_UNIVERSE_PARQUET: Path = HISTORICAL_DIR / "universe.parquet"
+HIST_IMA_HOLDINGS_PARQUET: Path = HISTORICAL_DIR / "ima_holdings.parquet"
+HIST_PRICES_PARQUET: Path = HISTORICAL_DIR / "prices.parquet"
+HIST_DELIST_PARQUET: Path = HISTORICAL_DIR / "delistings.parquet"  # optional
+
+# Backtest artifacts
+BACKTEST_DIR: Path = OUTPUT_DIR / "backtest"
+BACKTEST_PANEL_PARQUET: Path = BACKTEST_DIR / "panel.parquet"

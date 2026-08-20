@@ -20,19 +20,8 @@ import config
 
 logger = logging.getLogger(__name__)
 
-# Align with visualization.py — stoplight palette so the three tiers are
-# visually unambiguous on the scatter (the previous green/light-green/orange
-# made the colored portfolio overlay disappear in the Mainstream cloud).
-TIER_COLORS = {
-    "Stable":     "#2c7a4b",   # deep green
-    "Mainstream": "#d4a017",   # amber/gold
-    "Elevated":   "#b3001b",   # deep red
-    # Legacy 5-tier fallbacks
-    "Low Risk":   "#2c7a4b",
-    "Moderate":   "#7fb069",
-    "High":       "#e57a44",
-    "Critical":   "#b3001b",
-}
+# Cluster styles are colored from cluster_result.style_colors (rank-ordered
+# palette defined in config.CLUSTER_STYLE_PALETTE) — aligned with visualization.py.
 
 INTERACTIVE_DIR = config.OUTPUT_DIR / "interactive"
 
@@ -42,8 +31,8 @@ def _ensure_dir() -> Path:
     return INTERACTIVE_DIR
 
 
-def _tier_color(tier: str) -> str:
-    return TIER_COLORS.get(tier, "#666")
+def _style_color(cluster_result, style: str) -> str:
+    return getattr(cluster_result, "style_colors", {}).get(style, "#666")
 
 
 def _write(fig: go.Figure, stem: str) -> None:
@@ -111,23 +100,23 @@ def plot_2d_pc_scatter(
     """Interactive PC scatter with hover tooltips + optional trajectories."""
     stem = stem or f"scatter_{pc_x.lower()}_{pc_y.lower()}"
     assignments = cluster_result.assignments
-    tier_labels = cluster_result.tier_labels
+    style_labels = cluster_result.style_labels
     tier_by_ticker = {
-        tk: tier_labels[int(cid)] for tk, cid in assignments.items()
+        tk: style_labels[int(cid)] for tk, cid in assignments.items()
     }
 
     fig = go.Figure()
 
     for cid in sorted(assignments.unique()):
         mask = assignments == cid
-        tier = tier_labels[int(cid)]
+        style = style_labels[int(cid)]
         tickers = scores.loc[mask].index
         fig.add_trace(go.Scatter(
             x=scores.loc[mask, pc_x],
             y=scores.loc[mask, pc_y],
             mode="markers",
-            name=f"C{cid} · {tier} (n={int(mask.sum())})",
-            marker=dict(color=_tier_color(tier), size=7,
+            name=f"C{cid} · {style} (n={int(mask.sum())})",
+            marker=dict(color=_style_color(cluster_result, style), size=7,
                         opacity=0.65, line=dict(width=0)),
             text=_hover_text(features, scores, percentile_ranks, tickers, tier_by_ticker),
             hovertemplate="%{text}<extra></extra>",
@@ -166,8 +155,7 @@ def plot_2d_pc_scatter(
 
     # Trajectories
     if trajectory is not None:
-        risk_rank = {cid: config.TIER_LABELS.index(tier_labels[cid])
-                     for cid in tier_labels}
+        risk_rank = cluster_result.risk_rank
         for tk in portfolio_tickers:
             path = trajectory.pc_paths.get(tk)
             if path is None:
@@ -248,22 +236,22 @@ def plot_3d_pc_scatter(
         return
 
     assignments = cluster_result.assignments
-    tier_labels = cluster_result.tier_labels
-    tier_by_ticker = {tk: tier_labels[int(cid)] for tk, cid in assignments.items()}
+    style_labels = cluster_result.style_labels
+    tier_by_ticker = {tk: style_labels[int(cid)] for tk, cid in assignments.items()}
 
     fig = go.Figure()
 
     for cid in sorted(assignments.unique()):
         mask = assignments == cid
-        tier = tier_labels[int(cid)]
+        style = style_labels[int(cid)]
         tickers = scores.loc[mask].index
         fig.add_trace(go.Scatter3d(
             x=scores.loc[mask, "PC1"],
             y=scores.loc[mask, "PC2"],
             z=scores.loc[mask, "PC3"],
             mode="markers",
-            name=f"C{cid} · {tier} (n={int(mask.sum())})",
-            marker=dict(color=_tier_color(tier), size=4, opacity=0.6,
+            name=f"C{cid} · {style} (n={int(mask.sum())})",
+            marker=dict(color=_style_color(cluster_result, style), size=4, opacity=0.6,
                         line=dict(width=0)),
             text=_hover_text(features, scores, percentile_ranks, tickers, tier_by_ticker),
             hovertemplate="%{text}<extra></extra>",
@@ -305,8 +293,7 @@ def plot_3d_pc_scatter(
 
     # Trajectories
     if trajectory is not None:
-        risk_rank = {cid: config.TIER_LABELS.index(tier_labels[cid])
-                     for cid in tier_labels}
+        risk_rank = cluster_result.risk_rank
         for tk in portfolio_tickers:
             path = trajectory.pc_paths.get(tk)
             if path is None:

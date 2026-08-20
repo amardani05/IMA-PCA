@@ -1,8 +1,10 @@
-"""PCA dimensionality reduction + k-means clustering for the torpedo screener.
+"""PCA dimensionality reduction + k-means clustering for the risk screener.
 
-Standardizes the 14-feature matrix, runs PCA, picks a k-means k via silhouette
+Standardizes the feature matrix, runs PCA, picks a k-means k via silhouette
 score, characterizes each cluster, and auto-labels PCs + clusters by their
-feature signatures.
+feature signatures. Clusters get DESCRIPTIVE style names (what the group looks
+like), plus a separate risk rank (safest -> riskiest by mean composite risk);
+the two are deliberately decoupled so a style name never reads as a risk verdict.
 """
 
 from __future__ import annotations
@@ -128,7 +130,9 @@ class ClusterResult:
     kmeans: KMeans
     assignments: pd.Series         # ticker -> cluster id
     centroids: np.ndarray          # (k, n_components)
-    tier_labels: dict[int, str]    # cluster id -> "Low Risk" / ... / "Critical"
+    style_labels: dict[int, str]   # cluster id -> "Core" / "High-Multiple Growth" / ...
+    risk_rank: dict[int, int]      # cluster id -> 0 (safest) .. k-1 (riskiest)
+    style_colors: dict[str, str]   # style name -> hex color (rank-ordered palette)
     silhouette: float
     diagnostics: pd.DataFrame      # k_candidates evaluation
     characterization: pd.DataFrame # per-cluster feature means
@@ -159,30 +163,75 @@ def _select_k(diag: pd.DataFrame, default_k: int, tol: float) -> int:
     return best_k
 
 
-def _label_clusters_by_risk(
+# Feature families used to name cluster styles. Each family lists (features,
+# direction), where direction=+1 means a HIGH raw z-mean triggers the name and
+# -1 means a LOW raw z-mean does.
+_STYLE_FAMILIES: list[tuple[str, list[str], int]] = [
+    ("Balance-Sheet Stress",
+     ["altman_z", "interest_coverage", "current_ratio", "fcf_yield", "accruals_ratio"], -1),
+    ("High-Multiple Growth",
+     ["pe_ratio", "ev_to_ebitda", "asset_growth_yoy", "momentum_90d",
+      "momentum_30d", "net_issuance_yoy"], +1),
+    ("Crowded / Volatile",
+     ["short_pct_float", "volatility_60d", "relative_volume"], +1),
+]
+_STYLE_TRIGGER_Z: float = 0.35   # min |family z-mean| before a name applies
+_STYLE_FALLBACK: str = "Core"    # near-average clusters
+
+
+def _cluster_risk_rank(
     features: pd.DataFrame,
     assignments: pd.Series,
     feature_cols: list[str],
-) -> dict[int, str]:
-    """Rank clusters by composite risk score and assign tier labels."""
-    # Standardize features once, then flip direction so high = risky for all.
+) -> dict[int, int]:
+    """Rank clusters 0 (safest) .. k-1 (riskiest) by mean risk-flipped z-score."""
     X = features[feature_cols].copy()
     z = (X - X.mean()) / X.std(ddof=0).replace(0, 1)
     for c in feature_cols:
         if config.RISK_DIRECTION.get(c, 1) == -1:
             z[c] = -z[c]
-    composite = z.mean(axis=1)
-    composite = composite.reindex(assignments.index)
-
+    composite = z.mean(axis=1).reindex(assignments.index)
     cluster_risk = composite.groupby(assignments).mean().sort_values()
-    # Lowest composite = safest = "Low Risk", highest = "Critical"
-    labels = config.TIER_LABELS
+    return {int(cid): rank for rank, cid in enumerate(cluster_risk.index)}
+
+
+def _style_clusters(
+    features: pd.DataFrame,
+    assignments: pd.Series,
+    feature_cols: list[str],
+) -> dict[int, str]:
+    """Name each cluster by its dominant feature-family signature.
+
+    Names describe what the group LOOKS like (descriptive), never how risky it
+    is — risk ordering lives in ``risk_rank``. A cluster with no family z-mean
+    beyond the trigger threshold is the unremarkable middle: "Core".
+    """
+    X = features[feature_cols].copy()
+    z = (X - X.mean()) / X.std(ddof=0).replace(0, 1)
+
     out: dict[int, str] = {}
-    n_clusters = len(cluster_risk)
-    # Map cluster rank (0=safest) to a tier label index (scale into TIER_LABELS)
-    for rank, cid in enumerate(cluster_risk.index):
-        idx = int(round(rank * (len(labels) - 1) / max(n_clusters - 1, 1)))
-        out[int(cid)] = labels[idx]
+    for cid in sorted(assignments.unique()):
+        members = assignments[assignments == cid].index
+        best_name, best_mag = _STYLE_FALLBACK, _STYLE_TRIGGER_Z
+        for name, cols, direction in _STYLE_FAMILIES:
+            cols_in = [c for c in cols if c in z.columns]
+            if not cols_in:
+                continue
+            fam_z = float(z.loc[members, cols_in].mean().mean()) * direction
+            if fam_z > best_mag:
+                best_mag = fam_z
+                best_name = name
+        out[int(cid)] = best_name
+
+    # Ensure names are unique (two clusters can share a signature)
+    seen: dict[str, int] = {}
+    for cid in sorted(out):
+        name = out[cid]
+        if name in seen:
+            seen[name] += 1
+            out[cid] = f"{name} ({seen[name]})"
+        else:
+            seen[name] = 1
     return out
 
 
@@ -190,7 +239,7 @@ def _characterize(
     features: pd.DataFrame,
     assignments: pd.Series,
     feature_cols: list[str],
-    tier_labels: dict[int, str],
+    style_labels: dict[int, str],
 ) -> pd.DataFrame:
     rows = []
     for cid in sorted(assignments.unique()):
@@ -198,7 +247,7 @@ def _characterize(
         sub = features.loc[members]
         row = {
             "cluster": cid,
-            "tier": tier_labels[int(cid)],
+            "style": style_labels[int(cid)],
             "n_stocks": len(members),
         }
         for c in feature_cols:
@@ -225,15 +274,27 @@ def run_clustering(
     labels = km.fit_predict(X)
 
     assignments = pd.Series(labels, index=pca_result.scores.index, name="cluster")
-    tier_labels = _label_clusters_by_risk(features, assignments, pca_result.feature_cols)
-    char = _characterize(features, assignments, pca_result.feature_cols, tier_labels)
+    style_labels = _style_clusters(features, assignments, pca_result.feature_cols)
+    risk_rank = _cluster_risk_rank(features, assignments, pca_result.feature_cols)
+    palette = config.CLUSTER_STYLE_PALETTE
+    style_colors = {
+        style_labels[cid]: palette[rank % len(palette)]
+        for cid, rank in risk_rank.items()
+    }
+    char = _characterize(features, assignments, pca_result.feature_cols, style_labels)
+    for cid in sorted(style_labels):
+        logger.info("  Cluster %d: %s (risk rank %d, n=%d)",
+                    cid, style_labels[cid], risk_rank[cid],
+                    int((assignments == cid).sum()))
 
     return ClusterResult(
         k=k,
         kmeans=km,
         assignments=assignments,
         centroids=km.cluster_centers_,
-        tier_labels=tier_labels,
+        style_labels=style_labels,
+        risk_rank=risk_rank,
+        style_colors=style_colors,
         silhouette=float(diag.loc[k, "silhouette"]),
         diagnostics=diag,
         characterization=char,
