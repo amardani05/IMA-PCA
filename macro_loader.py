@@ -50,7 +50,12 @@ MACRO_FACTORS: dict[str, dict[str, dict]] = {
         "DGS10":  {"name": "10Y Treasury Yield",   "source": "fred",     "transform": "level_change"},
         "DGS2":   {"name": "2Y Treasury Yield",    "source": "fred",     "transform": "level_change"},
         "T10Y2Y": {"name": "10Y-2Y Spread",        "source": "fred",     "transform": "level_change"},
-        "DGS30":  {"name": "30Y Treasury Yield",   "source": "fred",     "transform": "level_change"},
+        "DGS30":  {"name": "30Y Treasury Yield (nominal)", "source": "fred", "transform": "level_change"},
+        # TIPS constant-maturity real yields — the "real" half of the
+        # nominal = real + breakeven decomposition. A nominal 30Y move is
+        # answered by the DFII30 beta plus the breakeven beta.
+        "DFII30": {"name": "30Y Real Yield (TIPS)", "source": "fred",    "transform": "level_change"},
+        "DFII10": {"name": "10Y Real Yield (TIPS)", "source": "fred",    "transform": "level_change"},
     },
     "credit": {
         "BAMLH0A0HYM2": {"name": "HY Credit Spread (OAS)", "source": "fred", "transform": "level_change"},
@@ -91,6 +96,23 @@ MACRO_FACTORS: dict[str, dict[str, dict]] = {
         "ANFCI":    {"name": "Adj Chicago Fed Financial Conditions", "source": "fred", "transform": "level_change"},
         "STLFSI4":  {"name": "St. Louis Fed Financial Stress",       "source": "fred", "transform": "level_change"},
     },
+    "crypto": {
+        # The "dollar debasement" sleeve alongside gold/silver: does the
+        # portfolio co-move with crypto when that trade is on?
+        "BTC-USD": {"name": "Bitcoin",  "source": "yfinance", "transform": "log_return"},
+        "ETH-USD": {"name": "Ethereum", "source": "yfinance", "transform": "log_return"},
+    },
+    "growth": {
+        # ISM prints monthly (and left FRED in 2016), so a monthly series
+        # cannot sit in a daily regression. CYCDEF below is the daily
+        # market-traded proxy for the same growth impulse: industrial
+        # cyclicals minus consumer staples. A "softer ISM" day is a negative
+        # CYCDEF day.
+        "XLI":    {"name": "Industrials ETF",       "source": "yfinance", "transform": "log_return"},
+        "XLP":    {"name": "Consumer Staples ETF",  "source": "yfinance", "transform": "log_return"},
+        "CYCDEF": {"name": "Cyclicals − Defensives (ISM proxy)", "source": "derived",
+                   "transform": "return_spread", "legs": ["growth_XLI", "growth_XLP"]},
+    },
     "thematic": {
         "SMH":  {"name": "Semiconductor ETF",  "source": "yfinance", "transform": "log_return"},
         "ITA":  {"name": "Defense ETF",        "source": "yfinance", "transform": "log_return"},
@@ -124,6 +146,12 @@ CURATED_FACTORS: list[str] = [
     # the control set. Their portfolio exposures still surface via
     # ``control_betas`` on the v2 regression output.
     "rates_T10Y2Y",
+    # 30Y REAL yield: with the breakeven also in the set, this answers both
+    # halves of "are we exposed to 30Y moves — nominal? real?" (a nominal
+    # move decomposes into real + breakeven; DGS30 itself stays out of the
+    # curated set because it is nearly spanned by those two, which would
+    # blow up the VIFs).
+    "rates_DFII30",
     "inflation_T5YIE",
     "commodities_DCOILWTICO",
     "commodities_GC=F",
@@ -132,6 +160,9 @@ CURATED_FACTORS: list[str] = [
     # broader DTWEXAFEGS is still loaded and available in the "All" toggle.
     "currency_DXY",
     "financial_conditions_NFCI",
+    # Debasement-trade sleeve (with gold above) and the daily ISM proxy.
+    "crypto_BTC-USD",
+    "growth_CYCDEF",
 ]
 
 # Default scenario shocks (raw units; what the column-level macro series moves by).
@@ -151,6 +182,12 @@ SCENARIO_SHOCKS: dict[str, tuple[str, float]] = {
     "currency_DXY":             ("+5% DXY", 0.05),
     "volatility_liquidity_VIXCLS":  ("+10pt VIX", 10.0),
     "financial_conditions_NFCI":    ("+0.5σ tightening", 0.5),
+    "rates_DGS30":                  ("+50bp 30Y nominal", 0.50),
+    "rates_DFII30":                 ("+50bp 30Y real yield", 0.50),
+    "inflation_T10YIE":             ("+25bp 10Y breakeven", 0.25),
+    "commodities_SI=F":             ("+10% silver", 0.10),
+    "crypto_BTC-USD":               ("+20% BTC (debasement bid)", 0.20),
+    "growth_CYCDEF":                ("-2% cyclicals vs defensives (soft ISM print)", -0.02),
 }
 
 
@@ -325,9 +362,14 @@ def load_all_macro_factors(
     transforms: dict[str, str] = {}
     n_ok = n_skip = 0
 
+    derived_defs: dict[str, dict] = {}
     for category, defs in MACRO_FACTORS.items():
         for series_id, defn in defs.items():
             colname = f"{category}_{series_id}"
+            if defn["source"] == "derived":
+                # Computed from already-transformed legs after the fetch loop.
+                derived_defs[colname] = defn
+                continue
             cache_path = _cache_path(series_id)
 
             if not force_refresh and _cache_is_fresh(cache_path):
@@ -376,6 +418,18 @@ def load_all_macro_factors(
     transformed = pd.DataFrame(index=panel.index)
     for col, t in transforms.items():
         transformed[col] = apply_transform(panel[col], t)
+
+    # Derived factors: spreads of already-transformed legs (e.g. the CYCDEF
+    # ISM proxy = XLI log-return minus XLP log-return).
+    for colname, defn in derived_defs.items():
+        legs = defn.get("legs", [])
+        if len(legs) == 2 and all(l in transformed.columns for l in legs):
+            transformed[colname] = transformed[legs[0]] - transformed[legs[1]]
+            n_ok += 1
+        else:
+            logger.warning("Skipping derived factor %s: legs %s unavailable",
+                           colname, legs)
+            n_skip += 1
 
     # Drop any row missing ANY curated factor — better to discard the day
     # than to feed an incomplete row into the regression.

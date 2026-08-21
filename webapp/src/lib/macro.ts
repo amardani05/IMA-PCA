@@ -93,7 +93,7 @@ export function computeScenarioImpacts(
 }
 
 export const CATEGORY_ORDER = [
-  "rates", "credit", "inflation", "commodities", "currency",
+  "rates", "credit", "inflation", "commodities", "crypto", "growth", "currency",
   "volatility_liquidity", "financial_conditions", "thematic", "data_center_proxies",
 ] as const;
 
@@ -102,6 +102,8 @@ export const CATEGORY_LABELS: Record<string, string> = {
   credit: "Credit",
   inflation: "Inflation",
   commodities: "Commodities",
+  crypto: "Crypto",
+  growth: "Growth / ISM Proxy",
   currency: "Currency",
   volatility_liquidity: "Volatility / Liquidity",
   financial_conditions: "Financial Conditions",
