@@ -634,6 +634,41 @@ def _run_macro_pipeline(prices: pd.DataFrame, force_refresh: bool = False) -> di
         timeframe_results=timeframe_results,
     )
 
+    # ---- Factor-library extensions: index-vs-active table + theme PCA ----
+    from macro_export import export_factor_pca, export_index_vs_active
+
+    bench_ret = None
+    try:
+        from feature_engine import fetch_prices as _fp2
+        bp = _fp2([config.BENCHMARK_TICKER], lookback_days=config.PRICE_LOOKBACK_DAYS)
+        if not bp.empty and (config.BENCHMARK_TICKER, "Close") in bp.columns:
+            bench_ret = bp[(config.BENCHMARK_TICKER, "Close")].dropna().pct_change().dropna()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("benchmark return series unavailable (%s)", exc)
+
+    index_raw = None
+    if bench_ret is not None:
+        try:
+            index_raw = run_macro_regression(bench_ret, macro, mode="curated")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("index factor regression failed: %s", exc)
+    try:
+        export_index_vs_active(index_raw, raw_curated, curated)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("index-vs-active export failed: %s", exc)
+
+    factor_themes = None
+    if bench_ret is not None:
+        try:
+            from factor_pca import run_factor_pca
+            factor_themes = run_factor_pca(macro, port_ret, bench_ret)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("factor PCA failed: %s", exc)
+    try:
+        export_factor_pca(factor_themes)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("factor PCA export failed: %s", exc)
+
     # Top per-stock contributors per significant factor
     sig_factors = [f for f, e in curated.estimates.items() if e.significant_05]
     contributors: dict[str, list[dict]] = {}

@@ -127,6 +127,13 @@ MACRO_FACTORS: dict[str, dict[str, dict]] = {
         "XLP":    {"name": "Consumer Staples ETF",  "source": "yfinance", "transform": "log_return"},
         "CYCDEF": {"name": "Cyclicals − Defensives (ISM proxy)", "source": "derived",
                    "transform": "return_spread", "legs": ["growth_XLI", "growth_XLP"]},
+        # Actual ISM PMI via the manual drop-in (see data/factors_manual/):
+        # place ISM_PMI.csv there (columns: date,value) and it loads on the
+        # next run. Monthly frequency — held across the month like NFCI is
+        # across the week; excluded from factor PCA.
+        "ISM_PMI": {"name": "ISM Manufacturing PMI (manual, monthly)",
+                    "source": "manual", "file": "ISM_PMI.csv",
+                    "frequency": "monthly", "transform": "level_change"},
     },
     "thematic": {
         "SMH":  {"name": "Semiconductor ETF",  "source": "yfinance", "transform": "log_return"},
@@ -311,6 +318,29 @@ def _fetch_yfinance(series_id: str, start: str, end: str | None = None) -> pd.Se
     return s.dropna()
 
 
+MANUAL_FACTOR_DIR: Path = config.DATA_DIR / "factors_manual"
+
+
+def _fetch_manual(series_id: str, filename: str, start: str, end: str | None) -> pd.Series:
+    """Read a user-supplied CSV from ``data/factors_manual/`` (columns:
+    date,value). This is the ingestion path for series with no free API —
+    ISM prints, semi book-to-bill, anything hand-collected."""
+    path = MANUAL_FACTOR_DIR / filename
+    if not path.exists():
+        raise FileNotFoundError(f"manual series file not present: {path}")
+    df = pd.read_csv(path)
+    cols = {c.lower().strip(): c for c in df.columns}
+    if "date" not in cols or "value" not in cols:
+        raise ValueError(f"{path.name}: expected columns date,value; got {list(df.columns)}")
+    s = pd.Series(
+        pd.to_numeric(df[cols["value"]], errors="coerce").values,
+        index=pd.to_datetime(df[cols["date"]], errors="coerce"),
+        name=series_id,
+    ).dropna().sort_index()
+    s = s.loc[start:end] if end else s.loc[start:]
+    return s
+
+
 def _fetch_one(
     series_id: str,
     source: str,
@@ -318,6 +348,7 @@ def _fetch_one(
     end: str | None,
     fred: FredClient | None,
     yf_ticker: str | None = None,
+    manual_file: str | None = None,
 ) -> pd.Series:
     """Fetch one series. ``yf_ticker`` overrides ``series_id`` for yfinance
     when the public-friendly key differs from the yfinance ticker (e.g. our
@@ -333,6 +364,8 @@ def _fetch_one(
         if not s.empty:
             s.name = series_id
         return s
+    if source == "manual":
+        return _fetch_manual(series_id, manual_file or f"{series_id}.csv", start, end)
     raise ValueError(f"unknown source: {source}")
 
 
@@ -393,6 +426,7 @@ def load_all_macro_factors(
 
     raw_series: dict[str, pd.Series] = {}
     transforms: dict[str, str] = {}
+    ffill_limits: dict[str, int] = {}
     n_ok = n_skip = 0
 
     derived_defs: dict[str, dict] = {}
@@ -403,9 +437,19 @@ def load_all_macro_factors(
                 # Computed from already-transformed legs after the fetch loop.
                 derived_defs[colname] = defn
                 continue
+            # Hold monthly series across the month, weekly across the week,
+            # everything else bridges single-day holiday gaps only.
+            ffill_limits[colname] = (
+                31 if defn.get("frequency") == "monthly"
+                else 7 if series_id in WEEKLY_PUBLISHED_SERIES
+                else 1
+            )
             cache_path = _cache_path(series_id)
 
-            if not force_refresh and _cache_is_fresh(cache_path):
+            # Manual CSVs bypass the cache — re-read every run so a freshly
+            # dropped file takes effect immediately.
+            if (defn["source"] != "manual"
+                    and not force_refresh and _cache_is_fresh(cache_path)):
                 s = _load_from_cache(series_id)
                 if s is not None and not s.empty:
                     s = s.loc[start:end] if end else s.loc[start:]
@@ -416,13 +460,21 @@ def load_all_macro_factors(
 
             try:
                 s = _fetch_one(series_id, defn["source"], start, end, fred,
-                               yf_ticker=defn.get("yf_ticker"))
+                               yf_ticker=defn.get("yf_ticker"),
+                               manual_file=defn.get("file"))
                 if s.empty:
                     raise ValueError("empty response")
-                _save_to_cache(series_id, s)
+                if defn["source"] != "manual":
+                    _save_to_cache(series_id, s)
                 raw_series[colname] = s
                 transforms[colname] = defn["transform"]
                 n_ok += 1
+            except FileNotFoundError:
+                # Absent manual series are expected until someone drops the
+                # CSV in — not worth a warning every run.
+                logger.info("Manual series %s not present (add %s to %s to enable)",
+                            colname, defn.get("file"), MANUAL_FACTOR_DIR)
+                n_skip += 1
             except Exception as exc:  # noqa: BLE001
                 logger.warning("Skipping %s (%s): %s", colname, defn["source"], exc)
                 n_skip += 1
@@ -440,12 +492,7 @@ def load_all_macro_factors(
     bdays = pd.bdate_range(start=start, end=end or pd.Timestamp.utcnow().date())
     panel = pd.DataFrame(index=bdays)
     for colname, s in raw_series.items():
-        # colname is "{category}_{series_id}" but category itself may contain
-        # underscores (e.g. "financial_conditions"). Use rsplit to peel off
-        # only the trailing series_id.
-        series_id = colname.rsplit("_", 1)[1] if "_" in colname else colname
-        ffill_limit = 7 if series_id in WEEKLY_PUBLISHED_SERIES else 1
-        panel[colname] = s.reindex(bdays).ffill(limit=ffill_limit)
+        panel[colname] = s.reindex(bdays).ffill(limit=ffill_limits.get(colname, 1))
 
     # Apply transforms (level_change for I(1) series, log_return for prices)
     transformed = pd.DataFrame(index=panel.index)

@@ -261,6 +261,39 @@ def export_comparison(comparison: pd.DataFrame | None) -> None:
     _write_json(payload, "raw_vs_residualized.json")
 
 
+def export_index_vs_active(
+    index_raw: RegressionResult | None,
+    portfolio_raw: RegressionResult | None,
+    active_v2: RegressionResult,
+) -> None:
+    """Side-by-side per-factor table: what the INDEX carries (raw), what the
+    portfolio carries in total (raw), and the ACTIVE exposure (v2, net of
+    index/VIX/credit). total ≈ index-inherited + active."""
+    rows = []
+    for f in active_v2.factors:
+        row = {"factor": f}
+        for key, res in (("index", index_raw), ("portfolio_total", portfolio_raw),
+                         ("active", active_v2)):
+            est = res.estimates.get(f) if res is not None else None
+            row[key] = (
+                {"beta": est.beta, "t_stat": est.t_stat, "p_value": est.p_value}
+                if est is not None else None
+            )
+        rows.append(row)
+    _write_json({"rows": rows,
+                 "note": "index & portfolio_total are raw OLS; active is v2 "
+                         "residualized (net of IJR + VIX + HY OAS)"},
+                "index_vs_active.json")
+
+
+def export_factor_pca(result) -> None:
+    """``result`` is a factor_pca.FactorPCAResult (or None to clear)."""
+    payload = result.to_dict() if result is not None else {"available": False}
+    if result is not None:
+        payload["available"] = True
+    _write_json(payload, "factor_pca.json")
+
+
 def export_macro_to_webapp(
     portfolio_curated: RegressionResult,
     stock_betas: pd.DataFrame,

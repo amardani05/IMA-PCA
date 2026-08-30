@@ -7,6 +7,8 @@ import { MacroFactorChart } from "./MacroFactorChart";
 import { ScenarioCard } from "./ScenarioCard";
 import { PortfolioBetaTable } from "./PortfolioBetaTable";
 import { TimeframeSelector } from "./TimeframeSelector";
+import { IndexVsActivePanel } from "./IndexVsActivePanel";
+import { FactorPCAPanel } from "./FactorPCAPanel";
 import { fmt } from "../lib/data";
 
 interface Props {
@@ -87,8 +89,8 @@ export function MacroView({ portfolio }: Props) {
   if (macro === "loading") {
     return (
       <div>
-        <h2 className="section-title">Macro factor exposures</h2>
-        <div className="loading">Loading macro analysis…</div>
+        <h2 className="section-title">Factor exposures</h2>
+        <div className="loading">Loading factor analysis…</div>
       </div>
     );
   }
@@ -96,7 +98,7 @@ export function MacroView({ portfolio }: Props) {
   if (!macro) {
     return (
       <div>
-        <h2 className="section-title">Macro factor exposures</h2>
+        <h2 className="section-title">Factor exposures</h2>
         <div className="card error">
           <strong>Macro analysis output not available.</strong>
           <p>Run the pipeline with macro analysis enabled:</p>
@@ -128,11 +130,13 @@ python main.py`}
 
   return (
     <div>
-      <h2 className="section-title">Macro factor exposures</h2>
+      <h2 className="section-title">Factor exposures</h2>
       <p className="section-lede">
-        OLS regression of daily portfolio returns on transformed macro factors,
-        with HAC (Newey-West, 5-day) standard errors. Per-stock betas at the
-        bottom show which holdings drive each macro exposure.
+        The factor library: daily portfolio returns regressed on transformed
+        macro factors with HAC (Newey-West, 5-day) errors. Headline betas are
+        ACTIVE — net of index, VIX, and credit; the "Active vs index" table
+        shows what the benchmark itself carries. Per-stock betas at the bottom
+        show which holdings drive each exposure.
         <br />
         <small className="muted">
           n = {activeNobs} obs ·
@@ -159,6 +163,14 @@ python main.py`}
       }}>
         <MacroBetaPanel macro={display} liveBetas={fittedBetas} isModified={false} />
         <ScenarioCard macro={display} liveBetas={fittedBetas} />
+      </div>
+
+      <div style={{ marginTop: 12 }}>
+        <IndexVsActivePanel metadata={macro.metadata} />
+      </div>
+
+      <div style={{ marginTop: 12 }}>
+        <FactorPCAPanel />
       </div>
 
       <div style={{ marginTop: 12 }}>

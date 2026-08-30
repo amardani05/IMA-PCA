@@ -27,7 +27,7 @@ const TABS: { key: Tab; label: string }[] = [
   { key: "universe",      label: "Universe" },
   { key: "pitch",         label: "Pitch Assessor" },
   { key: "backtest",      label: "Backtest" },
-  { key: "macro",         label: "Macro Exposures" },
+  { key: "macro",         label: "Factor Exposures" },
   { key: "opportunities", label: "Opportunities" },
   { key: "drift",         label: "Drift Alerts" },
   { key: "gallery",       label: "Chart Gallery" },
