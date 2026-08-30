@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-21T12:49:37.165366Z",
+  "generated_at": "2026-08-30T17:34:11.486283Z",
   "universe_size": 605,
   "n_portfolio": 20,
   "financials_count": 161,
@@ -8,35 +8,35 @@
   "pca": {
     "n_components": 4,
     "variance_explained": [
-      0.13954779629181602,
-      0.13311207490439508,
-      0.09815145529731406,
-      0.09049821843665483
+      0.14357110970749792,
+      0.13324862506735477,
+      0.09414166146743785,
+      0.09163738795094215
     ],
     "cumulative_variance": [
-      0.13954779629181602,
-      0.2726598711962111,
-      0.37081132649352516,
-      0.46130954493018
+      0.14357110970749792,
+      0.27681973477485267,
+      0.3709613962422905,
+      0.46259878419323264
     ],
     "pc_labels": {
       "PC1": "Valuation Stress",
       "PC2": "Financial Health",
       "PC3": "Market Sentiment",
-      "PC4": "Financial Health"
+      "PC4": "Market Sentiment"
     }
   },
   "clustering": {
     "k": 3,
-    "silhouette": 0.32163700328585915,
+    "silhouette": 0.32407488816275803,
     "style_labels": {
-      "0": "Balance-Sheet Stress",
-      "1": "Core",
-      "2": "High-Multiple Growth"
+      "0": "Crowded / Volatile",
+      "1": "High-Multiple Growth",
+      "2": "Core"
     },
     "risk_rank": {
-      "1": 0,
-      "2": 1,
+      "2": 0,
+      "1": 1,
       "0": 2
     }
   },
@@ -53,19 +53,19 @@
   "style_order": [
     "Core",
     "High-Multiple Growth",
-    "Balance-Sheet Stress"
+    "Crowded / Volatile"
   ],
   "style_colors": {
     "Core": "#4a7fb5",
     "High-Multiple Growth": "#8a63bf",
-    "Balance-Sheet Stress": "#c05621"
+    "Crowded / Volatile": "#c05621"
   },
   "data_freshness": {
     "prices": {
-      "updated_at": "2026-08-21T12:30:05.654545Z"
+      "updated_at": "2026-08-30T17:22:31.953047Z"
     },
     "fundamentals": {
-      "updated_at": "2026-08-20T19:22:42.360826Z"
+      "updated_at": "2026-08-30T17:32:24.530326Z"
     },
     "sec_filings": null,
     "short_interest_note": "exchange-published on a ~2-week lag"

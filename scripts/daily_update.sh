@@ -45,7 +45,24 @@ if [ "$NET_OK" -ne 1 ]; then
   exit 1
 fi
 
-if "$PY" main.py >> "$LOG" 2>&1; then
+# Watchdog: a full run takes ~20 min; a run that exceeds 90 min is hung
+# (2026-08-25 incident: a FRED HTTP call with no timeout blocked for 5 days,
+# and launchd never fires a new instance while one is running). Kill and let
+# the site keep yesterday's data rather than wedge the whole schedule.
+run_with_timeout() {
+  local limit_s="$1"; shift
+  "$@" >> "$LOG" 2>&1 &
+  local cmd_pid=$!
+  ( sleep "$limit_s"; echo "WATCHDOG: killing PID $cmd_pid after ${limit_s}s" >> "$LOG"
+    kill -9 "$cmd_pid" 2>/dev/null ) &
+  local dog_pid=$!
+  wait "$cmd_pid"
+  local status=$?
+  kill "$dog_pid" 2>/dev/null
+  return $status
+}
+
+if run_with_timeout 5400 "$PY" main.py; then
   echo "--- pipeline OK, committing data $(date) ---" >> "$LOG"
   git add webapp/public >> "$LOG" 2>&1
   if ! git diff --cached --quiet -- webapp/public; then
@@ -59,7 +76,7 @@ if "$PY" main.py >> "$LOG" 2>&1; then
   # "webapp", so the CLI must upload the repo root (deploying from inside
   # webapp/ fails with "Root Directory does not exist").
   cd "$REPO" || exit 1
-  if "$VERCEL" --prod --yes >> "$LOG" 2>&1; then
+  if run_with_timeout 600 "$VERCEL" --prod --yes; then
     echo "=== DEPLOYED OK $(date) ===" >> "$LOG"
   else
     echo "=== DEPLOY FAILED $(date); data committed locally ===" >> "$LOG"
