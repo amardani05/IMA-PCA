@@ -56,6 +56,16 @@ MACRO_FACTORS: dict[str, dict[str, dict]] = {
         # answered by the DFII30 beta plus the breakeven beta.
         "DFII30": {"name": "30Y Real Yield (TIPS)", "source": "fred",    "transform": "level_change"},
         "DFII10": {"name": "10Y Real Yield (TIPS)", "source": "fred",    "transform": "level_change"},
+        # Fed policy (per R.E.): how the market reprices the FOMC path, and
+        # the balance sheet. ZQ=F is the 30-day fed funds future (front
+        # month, continuous) — implied rate = 100 − price, so the factor is
+        # the NEGATIVE price change; small roll artifacts at month-end are
+        # accepted for v1. WALCL is the weekly H.4.1 release (Wednesday),
+        # ffilled across the week like NFCI.
+        "ZQ=F":   {"name": "Fed Funds Futures (implied-rate chg)", "source": "yfinance",
+                   "transform": "neg_level_change"},
+        "WALCL":  {"name": "Fed Balance Sheet (H.4.1, weekly)", "source": "fred",
+                   "transform": "pct_change"},
     },
     "credit": {
         "BAMLH0A0HYM2": {"name": "HY Credit Spread (OAS)", "source": "fred", "transform": "level_change"},
@@ -71,20 +81,31 @@ MACRO_FACTORS: dict[str, dict[str, dict]] = {
         "DCOILWTICO":   {"name": "WTI Crude Oil",      "source": "fred",     "transform": "log_return"},
         "DCOILBRENTEU": {"name": "Brent Crude",        "source": "fred",     "transform": "log_return"},
         "DHHNGSP":      {"name": "Henry Hub Nat Gas",  "source": "fred",     "transform": "log_return"},
-        "GC=F":         {"name": "Gold",               "source": "yfinance", "transform": "log_return"},
         "HG=F":         {"name": "Copper",             "source": "yfinance", "transform": "log_return"},
         "SI=F":         {"name": "Silver",             "source": "yfinance", "transform": "log_return"},
+        # Ag complex (per R.E. — "ag futures are ripping; do we have
+        # implicit exposure?"): DBA basket is the curated representative,
+        # individual grains available in the All toggle.
+        "DBA":          {"name": "Agriculture (DBA basket)", "source": "yfinance", "transform": "log_return"},
+        "ZC=F":         {"name": "Corn",               "source": "yfinance", "transform": "log_return"},
+        "ZW=F":         {"name": "Wheat",              "source": "yfinance", "transform": "log_return"},
+        "ZS=F":         {"name": "Soybeans",           "source": "yfinance", "transform": "log_return"},
+    },
+    "debasement": {
+        # The debasement theme as one tag (per R.E.): gold + bitcoin + the
+        # dollar ebb and flow together when the trade is on.
+        "GC=F":    {"name": "Gold",     "source": "yfinance", "transform": "log_return"},
+        "BTC-USD": {"name": "Bitcoin",  "source": "yfinance", "transform": "log_return"},
+        "ETH-USD": {"name": "Ethereum", "source": "yfinance", "transform": "log_return"},
+        "DXY":     {"name": "DXY (ICE Dollar Index)", "source": "yfinance",
+                    "yf_ticker": "DX-Y.NYB", "transform": "log_return"},
     },
     "currency": {
         # DTWEXBGS (Broad index) contaminated the daily regression with EM
         # weekly-update noise. AFEGS covers only liquid majors (EUR, JPY,
         # GBP, CHF, AUD, CAD, SEK) and updates daily.
         "DTWEXAFEGS": {"name": "Trade-Weighted USD (Major)", "source": "fred", "transform": "log_return"},
-        # ICE Dollar Index — committee-recognized, EUR/JPY-heavy. Pulled from
-        # yfinance under DX-Y.NYB but exposed as "DXY" in MACRO_FACTORS so
-        # the column name is the obvious one.
-        "DXY":        {"name": "DXY (ICE Dollar Index)", "source": "yfinance",
-                       "yf_ticker": "DX-Y.NYB", "transform": "log_return"},
+        # DXY itself lives under "debasement" (with gold and bitcoin).
         "DEXCHUS":    {"name": "USD/CNY", "source": "fred", "transform": "log_return"},
     },
     "volatility_liquidity": {
@@ -95,12 +116,6 @@ MACRO_FACTORS: dict[str, dict[str, dict]] = {
         "NFCI":     {"name": "Chicago Fed Financial Conditions",     "source": "fred", "transform": "level_change"},
         "ANFCI":    {"name": "Adj Chicago Fed Financial Conditions", "source": "fred", "transform": "level_change"},
         "STLFSI4":  {"name": "St. Louis Fed Financial Stress",       "source": "fred", "transform": "level_change"},
-    },
-    "crypto": {
-        # The "dollar debasement" sleeve alongside gold/silver: does the
-        # portfolio co-move with crypto when that trade is on?
-        "BTC-USD": {"name": "Bitcoin",  "source": "yfinance", "transform": "log_return"},
-        "ETH-USD": {"name": "Ethereum", "source": "yfinance", "transform": "log_return"},
     },
     "growth": {
         # ISM prints monthly (and left FRED in 2016), so a monthly series
@@ -115,6 +130,14 @@ MACRO_FACTORS: dict[str, dict[str, dict]] = {
     },
     "thematic": {
         "SMH":  {"name": "Semiconductor ETF",  "source": "yfinance", "transform": "log_return"},
+        # AI proxies (per R.E.): DRAM = Roundhill Memory ETF (memory-price
+        # proxy), AIQ = broad AI basket, MU = Micron single-name memory
+        # proxy. Compute futures get added when they list (Oct 2026); semi
+        # book-to-bill is monthly/paywalled — candidate for the factor
+        # library's manual-series ingestion.
+        "DRAM": {"name": "Memory ETF (Roundhill)", "source": "yfinance", "transform": "log_return"},
+        "AIQ":  {"name": "AI ETF (Global X)",      "source": "yfinance", "transform": "log_return"},
+        "MU":   {"name": "Micron (memory proxy)",  "source": "yfinance", "transform": "log_return"},
         "ITA":  {"name": "Defense ETF",        "source": "yfinance", "transform": "log_return"},
         "URA":  {"name": "Uranium ETF",        "source": "yfinance", "transform": "log_return"},
         "KWEB": {"name": "China Internet ETF", "source": "yfinance", "transform": "log_return"},
@@ -135,7 +158,7 @@ MACRO_FACTORS: dict[str, dict[str, dict]] = {
 # the week so they don't blow out daily regressions via row-drop. T5YIE etc
 # are daily but occasionally have gaps; for those the default 1-day ffill
 # is correct.
-WEEKLY_PUBLISHED_SERIES: set[str] = {"NFCI", "ANFCI", "STLFSI4"}
+WEEKLY_PUBLISHED_SERIES: set[str] = {"NFCI", "ANFCI", "STLFSI4", "WALCL"}
 
 
 CURATED_FACTORS: list[str] = [
@@ -152,16 +175,19 @@ CURATED_FACTORS: list[str] = [
     # curated set because it is nearly spanned by those two, which would
     # blow up the VIFs).
     "rates_DFII30",
+    # Market's repricing of the FOMC path (per R.E.).
+    "rates_ZQ=F",
     "inflation_T5YIE",
     "commodities_DCOILWTICO",
-    "commodities_GC=F",
     "commodities_HG=F",
-    # DXY (ICE Dollar Index) preferred for committee recognition; the
-    # broader DTWEXAFEGS is still loaded and available in the "All" toggle.
-    "currency_DXY",
+    # Ag complex representative (per R.E. — implicit ag exposure?).
+    "commodities_DBA",
+    # Debasement theme: gold + dollar + bitcoin as one visible group.
+    "debasement_GC=F",
+    "debasement_DXY",
+    "debasement_BTC-USD",
     "financial_conditions_NFCI",
-    # Debasement-trade sleeve (with gold above) and the daily ISM proxy.
-    "crypto_BTC-USD",
+    # Daily ISM proxy.
     "growth_CYCDEF",
 ]
 
@@ -176,17 +202,20 @@ SCENARIO_SHOCKS: dict[str, tuple[str, float]] = {
     "inflation_T5YIE":          ("+25bp", 0.25),
     "commodities_DCOILWTICO":   ("-10% oil", -0.10),
     "commodities_DCOILBRENTEU": ("-10% Brent", -0.10),
-    "commodities_GC=F":         ("+5% gold", 0.05),
     "commodities_HG=F":         ("-10% copper", -0.10),
     "currency_DTWEXAFEGS":      ("+5% USD (Major)", 0.05),
-    "currency_DXY":             ("+5% DXY", 0.05),
     "volatility_liquidity_VIXCLS":  ("+10pt VIX", 10.0),
     "financial_conditions_NFCI":    ("+0.5σ tightening", 0.5),
     "rates_DGS30":                  ("+50bp 30Y nominal", 0.50),
     "rates_DFII30":                 ("+50bp 30Y real yield", 0.50),
+    "rates_ZQ=F":                   ("-25bp implied Fed path (dovish repricing)", -0.25),
+    "rates_WALCL":                  ("+2% Fed balance sheet (QE restart)", 0.02),
     "inflation_T10YIE":             ("+25bp 10Y breakeven", 0.25),
     "commodities_SI=F":             ("+10% silver", 0.10),
-    "crypto_BTC-USD":               ("+20% BTC (debasement bid)", 0.20),
+    "commodities_DBA":              ("+10% ag complex", 0.10),
+    "debasement_GC=F":              ("+5% gold", 0.05),
+    "debasement_DXY":               ("+5% DXY", 0.05),
+    "debasement_BTC-USD":           ("+20% BTC (debasement bid)", 0.20),
     "growth_CYCDEF":                ("-2% cyclicals vs defensives (soft ISM print)", -0.02),
 }
 
@@ -314,6 +343,10 @@ def apply_transform(s: pd.Series, transform: str) -> pd.Series:
     """Make the series stationary."""
     if transform == "level_change":
         return s.diff()
+    if transform == "neg_level_change":
+        # For price-quoted rate futures (implied rate = 100 − price): the
+        # factor is the implied-RATE change, i.e. the negative price change.
+        return -s.diff()
     if transform == "log_return":
         # Filter out non-positive values before log
         s_pos = s.where(s > 0)
