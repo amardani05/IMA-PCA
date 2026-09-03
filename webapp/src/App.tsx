@@ -6,6 +6,8 @@ import {
 } from "./lib/types";
 import { TickerOpenContext } from "./lib/tickerContext";
 import { computeFeatureRanks } from "./lib/assess";
+import { UniverseFactorBetas, loadUniverseFactorBetas } from "./lib/factorBetas";
+import { FactorMetadata } from "./lib/macroTypes";
 import { Overview } from "./components/Overview";
 import { UniverseView } from "./components/UniverseView";
 import { PortfolioView } from "./components/PortfolioView";
@@ -76,9 +78,18 @@ export default function App() {
   const [tab, setTab] = useState<Tab>("overview");
   const [drawerTicker, setDrawerTicker] = useState<string | null>(null);
   const [pitchTicker, setPitchTicker] = useState<string | null>(null);
+  const [universeBetas, setUniverseBetas] = useState<UniverseFactorBetas | null>(null);
+  const [factorMetadata, setFactorMetadata] = useState<FactorMetadata | null>(null);
 
   useEffect(() => {
     loadAll().then(setData).catch((e) => setErr(String(e)));
+    // Factor-library payloads are optional: the app works without them, and
+    // they only appear once a macro-enabled pipeline run has produced them.
+    loadUniverseFactorBetas().then(setUniverseBetas);
+    fetch("/data/macro/factor_metadata.json")
+      .then((r) => (r.ok ? r.json() : null))
+      .then(setFactorMetadata)
+      .catch(() => setFactorMetadata(null));
   }, []);
 
   // Per-feature risk percentiles, shared by the drawer and pitch tab.
@@ -158,7 +169,10 @@ export default function App() {
                                                universe={data.universe}
                                                clusterMeta={data.clusterMeta}
                                                trajectory={data.trajectory}
-                                               initialTicker={pitchTicker} />}
+                                               initialTicker={pitchTicker}
+                                               portfolio={data.portfolio}
+                                               universeBetas={universeBetas}
+                                               factorMetadata={factorMetadata} />}
           {tab === "backtest"     && <BacktestView />}
           {tab === "opportunities"&& <OpportunitiesView opportunities={data.opportunities} />}
           {tab === "drift"        && <DriftView drift={data.drift} meta={data.meta} />}
@@ -173,6 +187,8 @@ export default function App() {
             clusterMeta={data.clusterMeta}
             trajectory={data.trajectory}
             featureRanks={featureRanks}
+            universeBetas={universeBetas}
+            factorMetadata={factorMetadata}
             onClose={() => setDrawerTicker(null)}
             onOpenPitch={openPitch}
           />

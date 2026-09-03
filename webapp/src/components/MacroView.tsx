@@ -9,6 +9,7 @@ import { PortfolioBetaTable } from "./PortfolioBetaTable";
 import { TimeframeSelector } from "./TimeframeSelector";
 import { IndexVsActivePanel } from "./IndexVsActivePanel";
 import { FactorPCAPanel } from "./FactorPCAPanel";
+import { AttributionPanel } from "./AttributionPanel";
 import { fmt } from "../lib/data";
 
 interface Props {
@@ -163,6 +164,10 @@ python main.py`}
       }}>
         <MacroBetaPanel macro={display} liveBetas={fittedBetas} isModified={false} />
         <ScenarioCard macro={display} liveBetas={fittedBetas} />
+      </div>
+
+      <div style={{ marginTop: 12 }}>
+        <AttributionPanel metadata={macro.metadata} />
       </div>
 
       <div style={{ marginTop: 12 }}>

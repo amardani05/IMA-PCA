@@ -286,6 +286,54 @@ def export_index_vs_active(
                 "index_vs_active.json")
 
 
+def export_universe_factor_betas(
+    per_stock_long: pd.DataFrame,
+    index_betas: dict[str, float] | None,
+) -> None:
+    """Factor betas for EVERY scored stock — the bridge that turns the screener
+    into a factor tool.
+
+    These are raw (unconditional) per-stock betas, which is what makes them
+    composable: a portfolio's raw beta is the weight-average of its holdings'
+    raw betas, so the webapp can answer "what does adding this name do to our
+    exposure?" exactly. ``index_betas`` (IJR raw) travels alongside so the UI
+    can show each stock's exposure *relative to the benchmark*.
+    """
+    if per_stock_long.empty:
+        _write_json({"available": False, "tickers": [], "factors": [],
+                     "betas": {}, "index_betas": {}}, "universe_factor_betas.json")
+        return
+
+    beta_wide = pivot_betas(per_stock_long, "beta")
+    p_wide = pivot_betas(per_stock_long, "p_value")
+    factors = list(beta_wide.columns)
+
+    payload = {
+        "available": True,
+        "tickers": list(beta_wide.index),
+        "factors": factors,
+        "index_betas": {f: float(v) for f, v in (index_betas or {}).items() if f in factors},
+        # rounded to keep the payload small — 4dp is far finer than the
+        # standard errors on these estimates
+        "betas": {
+            tk: [None if pd.isna(beta_wide.loc[tk, f]) else round(float(beta_wide.loc[tk, f]), 4)
+                 for f in factors]
+            for tk in beta_wide.index
+        },
+        "p_values": {
+            tk: [None if pd.isna(p_wide.loc[tk, f]) else round(float(p_wide.loc[tk, f]), 3)
+                 for f in factors]
+            for tk in p_wide.index
+        },
+    }
+    _write_json(payload, "universe_factor_betas.json")
+
+
+def export_attribution(attribution: dict | None) -> None:
+    """Active-return attribution (factor contributions + selection)."""
+    _write_json(attribution or {"available": False}, "attribution.json")
+
+
 def export_factor_pca(result) -> None:
     """``result`` is a factor_pca.FactorPCAResult (or None to clear)."""
     payload = result.to_dict() if result is not None else {"available": False}

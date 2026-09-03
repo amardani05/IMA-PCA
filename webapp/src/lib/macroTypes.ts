@@ -8,9 +8,10 @@ export interface FactorMeta {
   category: FactorCategory;
   series_id: string;
   name: string;
-  source: "fred" | "yfinance";
-  transform: "level_change" | "log_return" | "pct_change";
+  source: "fred" | "yfinance" | "derived" | "manual";
+  transform: "level_change" | "neg_level_change" | "log_return" | "pct_change" | "return_spread";
   in_curated: boolean;
+  frequency?: "monthly";
 }
 
 export interface FactorMetadata {

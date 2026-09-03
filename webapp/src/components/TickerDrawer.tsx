@@ -7,6 +7,9 @@ import {
 import {
   FeatureRanks, classifyTrajectory, sectorPercentile, topRiskDrivers,
 } from "../lib/assess";
+import { UniverseFactorBetas } from "../lib/factorBetas";
+import { FactorMetadata } from "../lib/macroTypes";
+import { FactorExposureBlock } from "./FactorExposureBlock";
 
 interface Props {
   ticker: string;
@@ -15,6 +18,8 @@ interface Props {
   clusterMeta: ClusterMeta;
   trajectory?: TrajectoryData | null;
   featureRanks: FeatureRanks;
+  universeBetas?: UniverseFactorBetas | null;
+  factorMetadata?: FactorMetadata | null;
   onClose: () => void;
   onOpenPitch: (ticker: string) => void;
 }
@@ -25,7 +30,7 @@ interface Props {
  */
 export function TickerDrawer({
   ticker, universe, meta, clusterMeta, trajectory, featureRanks,
-  onClose, onOpenPitch,
+  universeBetas, factorMetadata, onClose, onOpenPitch,
 }: Props) {
   const row = useMemo(
     () => universe.find((u) => u.Ticker === ticker) ?? null,
@@ -153,6 +158,14 @@ export function TickerDrawer({
             ) : "Too few sector peers in the universe for a within-sector rank."}
           </div>
         </section>
+
+        {universeBetas && universeBetas.betas[ticker] && (
+          <section>
+            <h4>Macro factor exposures vs index</h4>
+            <FactorExposureBlock ub={universeBetas} metadata={factorMetadata ?? null}
+                                 ticker={ticker} limit={6} />
+          </section>
+        )}
 
         <section>
           <h4>Statistical neighbors</h4>

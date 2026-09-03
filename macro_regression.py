@@ -578,6 +578,61 @@ def per_stock_macro_betas(
     return pd.DataFrame(rows)
 
 
+def active_attribution(
+    portfolio_returns: pd.Series,
+    benchmark_returns: pd.Series,
+    factors: pd.DataFrame,
+    mode: str = "curated",
+    hac_lags: int = 5,
+) -> dict:
+    """Decompose ACTIVE return (portfolio − benchmark) into factor contributions
+    plus selection.
+
+    Active return is regressed on the curated factors; each factor's
+    contribution over the window is ``beta_k × Σ factor_k``, and whatever the
+    factors do not explain is *selection* (stock picking) plus the intercept.
+    This is the attribution counterpart to the exposure table: exposures say
+    what we are exposed to, attribution says what that exposure actually cost
+    or earned.
+    """
+    active = (portfolio_returns - benchmark_returns).dropna()
+    res = run_macro_regression(active, factors, mode=mode, hac_lags=hac_lags)
+
+    selected = list(res.factors)
+    aligned = factors[selected].reindex(active.index).dropna()
+    active_aligned = active.reindex(aligned.index)
+
+    total_active = float(active_aligned.sum())
+    contributions = []
+    explained = 0.0
+    for f in selected:
+        est = res.estimates[f]
+        contrib = float(est.beta * aligned[f].sum())
+        explained += contrib
+        contributions.append({
+            "factor": f,
+            "beta": float(est.beta),
+            "factor_move": float(aligned[f].sum()),
+            "contribution": contrib,
+            "p_value": float(est.p_value),
+            "significant_10": bool(est.p_value < 0.10),
+        })
+    contributions.sort(key=lambda r: abs(r["contribution"]), reverse=True)
+
+    return {
+        "window": [aligned.index.min().date().isoformat(),
+                   aligned.index.max().date().isoformat()],
+        "n_obs": int(len(aligned)),
+        "total_active_return": total_active,
+        "factor_explained": explained,
+        "selection_residual": total_active - explained,
+        "r_squared": float(res.r_squared),
+        "alpha_daily": float(res.alpha),
+        "alpha_p": float(res.alpha_p),
+        "contributions": contributions,
+    }
+
+
 def pivot_betas(per_stock: pd.DataFrame, value: str = "beta") -> pd.DataFrame:
     """Wide pivot: rows = Ticker, cols = factor, values = beta (or t/p)."""
     if per_stock.empty:

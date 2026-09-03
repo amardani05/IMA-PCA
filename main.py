@@ -634,8 +634,11 @@ def _run_macro_pipeline(prices: pd.DataFrame, force_refresh: bool = False) -> di
         timeframe_results=timeframe_results,
     )
 
-    # ---- Factor-library extensions: index-vs-active table + theme PCA ----
-    from macro_export import export_factor_pca, export_index_vs_active
+    # ---- Factor-library extensions ----
+    from macro_export import (
+        export_attribution, export_factor_pca, export_index_vs_active,
+        export_universe_factor_betas,
+    )
 
     bench_ret = None
     try:
@@ -668,6 +671,41 @@ def _run_macro_pipeline(prices: pd.DataFrame, force_refresh: bool = False) -> di
         export_factor_pca(factor_themes)
     except Exception as exc:  # noqa: BLE001
         logger.warning("factor PCA export failed: %s", exc)
+
+    # Universe-wide per-stock factor betas: the bridge that lets the screener
+    # ask factor questions about any candidate, not just current holdings.
+    try:
+        universe_tickers = sorted({
+            t for t, field in prices.columns if field == "Close"
+        })
+        universe_rets = _build_returns(prices, universe_tickers)
+        universe_betas = per_stock_macro_betas(universe_rets, macro, mode="curated")
+        index_beta_map = (
+            {f: e.beta for f, e in index_raw.estimates.items()}
+            if index_raw is not None else {}
+        )
+        export_universe_factor_betas(universe_betas, index_beta_map)
+        logger.info("universe factor betas: %d tickers × %d factors",
+                    universe_betas["Ticker"].nunique() if not universe_betas.empty else 0,
+                    universe_betas["factor"].nunique() if not universe_betas.empty else 0)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("universe factor betas failed: %s", exc)
+
+    # Active-return attribution: what our exposures actually cost/earned.
+    if bench_ret is not None:
+        try:
+            from macro_regression import active_attribution
+            attribution = active_attribution(port_ret, bench_ret, macro, mode="curated")
+            attribution["available"] = True
+            export_attribution(attribution)
+            logger.info(
+                "attribution: active %.2f%% over %d days = factors %.2f%% + selection %.2f%%",
+                attribution["total_active_return"] * 100, attribution["n_obs"],
+                attribution["factor_explained"] * 100,
+                attribution["selection_residual"] * 100,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("attribution failed: %s", exc)
 
     # Top per-stock contributors per significant factor
     sig_factors = [f for f, e in curated.estimates.items() if e.significant_05]

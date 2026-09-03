@@ -3,7 +3,10 @@ import { PitchAssessment, recommendationColor } from "../lib/pitch";
 import { buildAssessment, computeFeatureRanks } from "../lib/assess";
 import { tierClass, fmt } from "../lib/data";
 import { featureLong, featureDefinition, ordinal } from "../lib/glossary";
-import { ClusterMeta, Meta, TrajectoryData, UniverseRow } from "../lib/types";
+import { ClusterMeta, Meta, PortfolioRow, TrajectoryData, UniverseRow } from "../lib/types";
+import { UniverseFactorBetas } from "../lib/factorBetas";
+import { FactorMetadata } from "../lib/macroTypes";
+import { SleeveImpactPanel } from "./SleeveImpactPanel";
 
 interface Props {
   meta: Meta;
@@ -11,9 +14,13 @@ interface Props {
   clusterMeta: ClusterMeta;
   trajectory?: TrajectoryData | null;
   initialTicker?: string | null;
+  portfolio: PortfolioRow[];
+  universeBetas?: UniverseFactorBetas | null;
+  factorMetadata?: FactorMetadata | null;
 }
 
-export function PitchView({ meta, universe, clusterMeta, trajectory, initialTicker }: Props) {
+export function PitchView({ meta, universe, clusterMeta, trajectory, initialTicker,
+                            portfolio, universeBetas, factorMetadata }: Props) {
   const [search, setSearch] = useState(initialTicker ?? "");
   const [active, setActive] = useState<string | null>(initialTicker ?? null);
 
@@ -105,7 +112,15 @@ export function PitchView({ meta, universe, clusterMeta, trajectory, initialTick
         </div>
       )}
 
-      {result && !("error" in result) && <PitchPage pitch={result} meta={meta} />}
+      {result && !("error" in result) && (
+        <>
+          <PitchPage pitch={result} meta={meta} />
+          {universeBetas && universeBetas.betas[result.ticker] && (
+            <SleeveImpactPanel ub={universeBetas} metadata={factorMetadata ?? null}
+                               portfolio={portfolio} candidate={result.ticker} />
+          )}
+        </>
+      )}
     </div>
   );
 }
