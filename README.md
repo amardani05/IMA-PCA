@@ -150,7 +150,13 @@ quarters, and stocks within 0.5 PC-units of a boundary.
 time via the LaunchAgent `com.ima.pca.daily` (plist copy in `scripts/`,
 installed to `~/Library/LaunchAgents`), commits the regenerated
 `webapp/public/` data, pushes, and deploys to Vercel production. Logs land in
-`output/daily/`. On failure the site simply keeps the previous day's data.
+`output/daily/`. On failure it retries once after 20 minutes, then gives up
+with a macOS notification; the site keeps the previous day's data. The
+pipeline itself refuses to run if fewer than 90% of tickers have a recent
+price (`config.PRICE_MIN_FRESH_COVERAGE`) — wake-time network failures used
+to produce a universe with median-imputed momentum, and that must never ship.
+If refreshes stop, check `launchctl print gui/$(id -u)/com.ima.pca.daily`,
+the newest `output/daily/refresh_*.log`, and `output/daily/launchd.err`.
 
 ### How to run it
 
