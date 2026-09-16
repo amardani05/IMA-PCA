@@ -284,46 +284,34 @@ def fetch_fundamentals(
 # =============================================================================
 # Price data
 # =============================================================================
-def fetch_prices(
-    tickers: list[str],
-    lookback_days: int = config.PRICE_LOOKBACK_DAYS,
-    force_refresh: bool = False,
-) -> pd.DataFrame:
-    """Download adjusted daily close + volume for all tickers.
+def _load_price_cache(cache_path: Path) -> pd.DataFrame:
+    cached = pd.read_parquet(cache_path)
+    cached.columns = pd.MultiIndex.from_tuples(
+        [tuple(c.split("|", 1)) for c in cached.columns]
+    )
+    return cached
 
-    Returns a DataFrame with a MultiIndex of (ticker, field) columns where
-    field in ``{"Close", "Volume"}``. Cached to parquet.
+
+def _download_price_batch(
+    batch: list[str],
+    start: datetime,
+    end: datetime,
+    attempts: int = config.PRICE_FETCH_ATTEMPTS,
+) -> dict[str, pd.DataFrame]:
+    """Download one batch, retrying only the tickers that came back empty.
+
+    On a just-woken laptop DNS flaps and yfinance's sqlite cache throws
+    ``unable to open database file`` for a few seconds at a time (the
+    9/10–9/16 runs lost ~60% of batches this way). Both are transient, so a
+    short back-off and a retry of just the missing names recovers nearly all
+    of them without re-downloading what already succeeded.
     """
-    cache_path = config.PRICE_CACHE
-
-    if not force_refresh and _cache_is_fresh(cache_path, 1):
-        logger.info("Loading price cache from %s", cache_path)
-        cached = pd.read_parquet(cache_path)
-        cached.columns = pd.MultiIndex.from_tuples(
-            [tuple(c.split("|", 1)) for c in cached.columns]
-        )
-        cached_tickers = {t for t, _ in cached.columns}
-        missing = [t for t in tickers if t not in cached_tickers]
-        if not missing:
-            return cached
-        logger.info("Price cache missing %d tickers", len(missing))
-        to_fetch = missing
-        prior = cached
-    else:
-        to_fetch = tickers
-        prior = None
-
-    end = datetime.utcnow()
-    start = end - timedelta(days=int(lookback_days * 1.6) + 10)
-
-    frames: list[pd.DataFrame] = []
-    n_total = len(to_fetch)
-    t0 = time.time()
-    for i in range(0, n_total, config.BATCH_SIZE):
-        batch = to_fetch[i : i + config.BATCH_SIZE]
+    got: dict[str, pd.DataFrame] = {}
+    pending = list(batch)
+    for attempt in range(1, attempts + 1):
         try:
             raw = yf.download(
-                batch,
+                pending,
                 start=start.date().isoformat(),
                 end=end.date().isoformat(),
                 auto_adjust=True,
@@ -333,30 +321,127 @@ def fetch_prices(
                 ignore_tz=True,
             )
         except Exception as exc:  # noqa: BLE001
-            logger.warning("Price batch failed %s: %s", batch, exc)
-            continue
-
-        for tk in batch:
+            logger.warning("Price batch attempt %d failed (%s): %s",
+                           attempt, ", ".join(pending[:5]), exc)
+            raw = None
+        for tk in pending:
             df_tk = _extract_ticker_prices(raw, tk)
-            if df_tk is None or df_tk.empty:
-                continue
-            df_tk.columns = pd.MultiIndex.from_product([[tk], df_tk.columns])
-            frames.append(df_tk)
+            if df_tk is not None and not df_tk.empty:
+                df_tk.columns = pd.MultiIndex.from_product([[tk], df_tk.columns])
+                got[tk] = df_tk
+        pending = [t for t in pending if t not in got]
+        if not pending:
+            break
+        if attempt < attempts:
+            time.sleep(config.PRICE_FETCH_RETRY_SECONDS * attempt)
+    return got
 
+
+def fetch_prices(
+    tickers: list[str],
+    lookback_days: int = config.PRICE_LOOKBACK_DAYS,
+    force_refresh: bool = False,
+) -> pd.DataFrame:
+    """Download adjusted daily close + volume for all tickers.
+
+    Returns a DataFrame with a MultiIndex of (ticker, field) columns where
+    field in ``{"Close", "Volume"}``. Cached to parquet.
+
+    Cache policy (rewritten after the 9/10–9/16 incident, when wake-time
+    network failures silently left ~64% of the universe with median-imputed
+    momentum/volatility):
+
+    * The cache is *fresh* for ``config.PRICE_CACHE_MAX_AGE_DAYS`` (half a
+      day): a second run the same day reuses it; the next morning's run
+      re-pulls everything.
+    * The existing cache is ALWAYS loaded as a fallback. A ticker whose
+      re-pull fails keeps its prior (slightly stale) series instead of
+      becoming NaN — stale-by-a-day momentum is right; imputed momentum is
+      wrong.
+    * Circuit breaker: if fewer than ``config.PRICE_MIN_FRESH_COVERAGE`` of
+      the requested tickers have a price within the last few sessions, raise.
+      The daily script then retries after a cool-down, and if that fails too
+      the site keeps yesterday's data. Bad price data must never ship.
+    """
+    cache_path = config.PRICE_CACHE
+    tickers = list(dict.fromkeys(tickers))  # de-dupe, keep order
+
+    prior: pd.DataFrame | None = None
+    if cache_path.exists() and not force_refresh:
+        logger.info("Loading price cache from %s", cache_path)
+        prior = _load_price_cache(cache_path)
+        cached_tickers = {t for t, _ in prior.columns}
+        if _cache_is_fresh(cache_path, config.PRICE_CACHE_MAX_AGE_DAYS):
+            missing = [t for t in tickers if t not in cached_tickers]
+            if not missing:
+                return prior
+            logger.info("Price cache fresh but missing %d tickers", len(missing))
+            to_fetch = missing
+        else:
+            logger.info("Price cache is >%.1f days old; re-pulling all %d tickers "
+                        "(prior data kept as fallback)",
+                        config.PRICE_CACHE_MAX_AGE_DAYS, len(tickers))
+            to_fetch = tickers
+    else:
+        to_fetch = tickers
+
+    end = datetime.utcnow()
+    start = end - timedelta(days=int(lookback_days * 1.6) + 10)
+
+    frames: dict[str, pd.DataFrame] = {}
+    n_total = len(to_fetch)
+    t0 = time.time()
+    for i in range(0, n_total, config.BATCH_SIZE):
+        batch = to_fetch[i : i + config.BATCH_SIZE]
+        frames.update(_download_price_batch(batch, start, end))
         done = min(i + config.BATCH_SIZE, n_total)
         if done % 50 == 0 or done == n_total:
-            logger.info("Prices: %d/%d (%.1fs)", done, n_total, time.time() - t0)
+            logger.info("Prices: %d/%d attempted, %d ok (%.1fs)",
+                        done, n_total, len(frames), time.time() - t0)
         if done < n_total:
             time.sleep(1)
 
-    if not frames and prior is None:
-        return pd.DataFrame()
+    failed = [t for t in to_fetch if t not in frames]
+    if failed:
+        logger.warning("Prices: %d/%d tickers failed after %d attempts each%s",
+                       len(failed), n_total, config.PRICE_FETCH_ATTEMPTS,
+                       " — carrying prior data" if prior is not None else "")
+        logger.debug("failed tickers: %s", ", ".join(failed))
 
-    new_df = pd.concat(frames, axis=1) if frames else pd.DataFrame()
-    merged = pd.concat([prior, new_df], axis=1) if prior is not None else new_df
+    new_df = pd.concat(frames.values(), axis=1) if frames else pd.DataFrame()
+    if prior is not None:
+        # Prior data is kept only for tickers we did NOT successfully re-pull.
+        keep = [c for c in prior.columns if c[0] not in frames]
+        merged = pd.concat([prior[keep], new_df], axis=1) if keep else new_df
+    else:
+        merged = new_df
+    if merged.empty:
+        raise RuntimeError("PRICE DATA FAILURE: no price data at all (network down?)")
     merged = merged.sort_index()
 
-    # Persist
+    # ---- Circuit breaker: enough of the universe must have RECENT prices ----
+    # "Recent" = a Close within the last PRICE_STALE_DAYS calendar days, which
+    # spans a weekend + holiday. A stale-carried ticker from a week ago fails
+    # this test on purpose.
+    cutoff = pd.Timestamp(end.date()) - pd.Timedelta(days=config.PRICE_STALE_DAYS)
+    closes = merged.xs("Close", axis=1, level=1) if "Close" in merged.columns.get_level_values(1) else pd.DataFrame()
+    wanted = [t for t in tickers if t in closes.columns]
+    last_dates = closes[wanted].apply(lambda s: s.last_valid_index())
+    fresh = int((last_dates >= cutoff).sum())
+    coverage = fresh / max(len(tickers), 1)
+    logger.info("Prices: %d/%d tickers (%.0f%%) have a close within %d days",
+                fresh, len(tickers), 100 * coverage, config.PRICE_STALE_DAYS)
+    if coverage < config.PRICE_MIN_FRESH_COVERAGE:
+        raise RuntimeError(
+            f"PRICE DATA FAILURE: only {fresh}/{len(tickers)} tickers "
+            f"({coverage:.0%}) have a recent close (need "
+            f"{config.PRICE_MIN_FRESH_COVERAGE:.0%}). Refusing to build "
+            f"features on imputed momentum/volatility. Usually a wake-time "
+            f"network problem — the daily script retries after a cool-down."
+        )
+
+    # Persist only when the pull was healthy, so a bad morning can't poison
+    # the fallback for the next run.
     persist = merged.copy()
     persist.columns = [f"{t}|{f}" for t, f in persist.columns]
     persist.to_parquet(cache_path)

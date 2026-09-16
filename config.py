@@ -156,6 +156,12 @@ CLUSTER_BOUNDARY_RADIUS: float = 0.5      # borderline flag in PC space
 BATCH_SIZE: int = 20
 BATCH_DELAY_SECONDS: int = 3
 PRICE_LOOKBACK_DAYS: int = 252            # ~1 trading year for current features
+# Price cache / fetch robustness (post 9/10–9/16 incident)
+PRICE_CACHE_MAX_AGE_DAYS: float = 0.5     # a same-day rerun reuses; each morning re-pulls
+PRICE_FETCH_ATTEMPTS: int = 3             # per batch; only the empty tickers are retried
+PRICE_FETCH_RETRY_SECONDS: int = 5        # back-off base (x attempt number)
+PRICE_STALE_DAYS: int = 5                 # "recent close" window (spans weekend + holiday)
+PRICE_MIN_FRESH_COVERAGE: float = 0.90    # below this the pipeline REFUSES to run
 FUNDAMENTALS_CACHE_MAX_AGE_DAYS: int = 7
 
 # Sectors treated as "financial" (Altman Z not meaningful)
