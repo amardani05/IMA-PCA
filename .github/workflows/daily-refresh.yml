@@ -83,6 +83,24 @@ jobs:
               sys.exit(f"IMPUTED DATA: {share:.0%} of stocks share one momentum value")
           if len(u) < 500:
               sys.exit(f"THIN UNIVERSE: only {len(u)} stocks scored")
+
+          # Macro needs FRED_API_KEY. Without it main.py skips the macro step
+          # and leaves the previous run's factor JSONs in place, so the Factor
+          # Exposures tab would silently lag the rest of the dashboard. Warn
+          # loudly rather than fail - a screener-only refresh still beats a
+          # month-old site.
+          try:
+              ms = json.load(open("webapp/public/data/macro/macro_summary.json"))
+              m_gen = datetime.datetime.fromisoformat(ms["generated_at"].replace("Z",""))
+              m_age_h = (datetime.datetime.utcnow() - m_gen).total_seconds() / 3600
+              if m_age_h > 36:
+                  print(f"::warning::Macro factors are {m_age_h/24:.1f} days old - "
+                        f"set the FRED_API_KEY repo secret so the factor library "
+                        f"refreshes with the screener")
+              else:
+                  print(f"macro factors fresh ({m_age_h:.1f}h)")
+          except FileNotFoundError:
+              print("::warning::No macro output yet (FRED_API_KEY secret not set)")
           print("output verified")
           PY
 
