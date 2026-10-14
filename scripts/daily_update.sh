@@ -1,8 +1,16 @@
 #!/bin/zsh
-# Unattended daily refresh for the IMA risk screener / factor library.
+# Manual / fallback refresh for the IMA risk screener / factor library.
 #
-# Run by launchd every weekday morning (see scripts/com.ima.pca.daily.plist,
-# installed to ~/Library/LaunchAgents). Mirrors the Sell-Model daily refresh:
+# NOTE (2026-10-14): the SCHEDULED daily run now lives in GitHub Actions
+# (.github/workflows/daily-refresh.yml). The launchd job was unloaded and its
+# plist renamed to .disabled, because running this on a laptop at a fixed
+# morning moment failed four separate ways in two months — most recently
+# DNS/thread exhaustion at 07:30 that failed every run for a month. Keep this
+# script for manual runs (`zsh scripts/daily_update.sh`) and as a fallback if
+# CI is ever unavailable; do NOT re-enable the launchd job while the workflow
+# is active, or the two will race to push to main.
+#
+# Steps:
 #   1. full pipeline run (fresh price/fundamentals caches)
 #   2. on success: commit the regenerated webapp data (data files only,
 #      never source code), best-effort push, deploy to Vercel production

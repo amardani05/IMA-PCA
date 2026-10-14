@@ -151,7 +151,15 @@ time via the LaunchAgent `com.ima.pca.daily` (plist copy in `scripts/`,
 installed to `~/Library/LaunchAgents`), commits the regenerated
 `webapp/public/` data, pushes, and deploys to Vercel production. Logs land in
 `output/daily/`. On failure it retries once after 20 minutes, then gives up
-with a macOS notification; the site keeps the previous day's data. The
+with a macOS notification; the site keeps the previous day's data.
+
+**The scheduled run lives in GitHub Actions** (`.github/workflows/daily-refresh.yml`),
+not on anyone's laptop — it runs daily at 11:30 UTC, caches `data/` between
+runs, verifies the output is same-day and not median-imputed, and pushes;
+Vercel's git integration deploys the push. Failures appear in the repo's
+Actions tab and are emailed. Run it on demand from the Actions tab or with
+`gh workflow run daily-refresh.yml`. It needs the `FRED_API_KEY` repo secret
+for the macro factors (without it the run still succeeds, minus macro). The
 pipeline itself refuses to run if fewer than 90% of tickers have a recent
 price (`config.PRICE_MIN_FRESH_COVERAGE`) — wake-time network failures used
 to produce a universe with median-imputed momentum, and that must never ship.
