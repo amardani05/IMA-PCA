@@ -1,0 +1,108 @@
+name: Daily data refresh
+
+# The pipeline used to run on Amar's laptop via launchd. That design failed in
+# four different ways in two months (hung process, zsh bug, wake-time network
+# corruption, and finally DNS/thread exhaustion at 07:30 that failed every run
+# from 9/18 to 10/14). A laptop that may be asleep, on hotel wifi, or under
+# load at a fixed moment cannot be a reliable daily job, so the schedule lives
+# here instead: a clean VM with a real network, visible logs, and email on
+# failure. Vercel is git-connected, so pushing the regenerated data deploys it.
+
+on:
+  schedule:
+    # 11:30 UTC daily (~06:30 CDT / 05:30 CST) — pre-market, so the dashboard
+    # has the prior session's close by the time anyone opens it. GitHub may
+    # delay scheduled runs under load; that is fine for a daily refresh.
+    - cron: '30 11 * * *'
+  workflow_dispatch:        # manual "run it now" button
+
+concurrency:
+  group: daily-refresh      # never let two refreshes race on the same branch
+  cancel-in-progress: false
+
+permissions:
+  contents: write           # to commit the regenerated data back to main
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120    # a cached run is ~5 min; the weekly fundamentals
+                            # refetch is ~45 min
+    env:
+      FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+      MPLBACKEND: Agg       # headless matplotlib
+      PYTHONUNBUFFERED: '1'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -q -r requirements.txt
+
+      # Persist the fetched-data caches between runs. Without this every run
+      # would refetch 607 tickers of fundamentals (~45 min). The price cache
+      # has a 0.5-day TTL so prices still re-pull every run; fundamentals have
+      # a 7-day TTL, so most days are fast and one day a week is slow.
+      - name: Restore data caches
+        uses: actions/cache@v4
+        with:
+          path: |
+            data/*.parquet
+            data/*.json
+            data/macro
+          key: ima-data-${{ github.run_id }}
+          restore-keys: ima-data-
+
+      - name: Run pipeline
+        run: python main.py
+
+      - name: Verify output is fresh and not imputed
+        # Belt-and-braces on top of the in-pipeline coverage circuit breaker:
+        # refuse to publish a universe whose momentum is mostly median-imputed
+        # (the 9/10-9/16 corruption mode), or output that is not from today.
+        run: |
+          python - <<'PY'
+          import json, collections, datetime, sys
+          meta = json.load(open("webapp/public/meta.json"))
+          gen = datetime.datetime.fromisoformat(meta["generated_at"].replace("Z",""))
+          age_h = (datetime.datetime.utcnow() - gen).total_seconds() / 3600
+          u = json.load(open("webapp/public/data/universe.json"))
+          vals = [round(r["momentum_90d"], 6) for r in u if r.get("momentum_90d") is not None]
+          top, n = collections.Counter(vals).most_common(1)[0]
+          share = n / len(vals)
+          print(f"universe={len(u)} generated={meta['generated_at']} age={age_h:.1f}h "
+                f"imputed_share={share:.1%}")
+          if age_h > 3:
+              sys.exit(f"STALE OUTPUT: generated {age_h:.1f}h ago")
+          if share > 0.05:
+              sys.exit(f"IMPUTED DATA: {share:.0%} of stocks share one momentum value")
+          if len(u) < 500:
+              sys.exit(f"THIN UNIVERSE: only {len(u)} stocks scored")
+          print("output verified")
+          PY
+
+      - name: Commit and push refreshed data
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add webapp/public data/factors_manual
+          if git diff --cached --quiet; then
+            echo "no data changes to commit"
+          else
+            git commit -m "Daily data refresh $(date -u +%Y-%m-%d)"
+            # Rebase in case a human pushed while the pipeline was running.
+            git pull --rebase origin main
+            git push origin main
+            echo "pushed — Vercel git integration deploys this automatically"
+          fi
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "### Daily refresh: ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
+          echo "Site: https://ima-pca.vercel.app" >> $GITHUB_STEP_SUMMARY
