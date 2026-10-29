@@ -1,6 +1,6 @@
 {
-  "generated_at": "2026-10-21T16:05:08.789381Z",
-  "universe_size": 606,
+  "generated_at": "2026-10-29T15:05:21.991713Z",
+  "universe_size": 605,
   "n_portfolio": 20,
   "financials_count": 161,
   "n_features": 16,
@@ -8,16 +8,16 @@
   "pca": {
     "n_components": 4,
     "variance_explained": [
-      0.1516366757862628,
-      0.12805480026504823,
-      0.11146641521552467,
-      0.08644557549133738
+      0.1464497177562079,
+      0.12688786296401255,
+      0.10880976770118858,
+      0.090223285941209
     ],
     "cumulative_variance": [
-      0.1516366757862628,
-      0.27969147605131106,
-      0.39115789126683576,
-      0.4776034667581731
+      0.1464497177562079,
+      0.27333758072022046,
+      0.38214734842140907,
+      0.47237063436261806
     ],
     "pc_labels": {
       "PC1": "Market Sentiment",
@@ -28,7 +28,7 @@
   },
   "clustering": {
     "k": 3,
-    "silhouette": 0.31357085097176696,
+    "silhouette": 0.3222301422222852,
     "style_labels": {
       "0": "High-Multiple Growth",
       "1": "Crowded / Volatile",
@@ -62,10 +62,10 @@
   },
   "data_freshness": {
     "prices": {
-      "updated_at": "2026-10-21T16:03:24.447249Z"
+      "updated_at": "2026-10-29T14:53:17.118166Z"
     },
     "fundamentals": {
-      "updated_at": "2026-10-14T17:02:23.842991Z"
+      "updated_at": "2026-10-29T15:02:59.036543Z"
     },
     "sec_filings": null,
     "short_interest_note": "exchange-published on a ~2-week lag"
