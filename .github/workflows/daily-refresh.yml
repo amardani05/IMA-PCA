@@ -108,14 +108,28 @@ jobs:
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add webapp/public data/factors_manual
+          # Stage every tracked artefact the pipeline legitimately regenerates.
+          # sp600_fallback.csv is rewritten whenever the scraped constituent
+          # list changes; omitting it left the tree dirty, which made
+          # `git pull --rebase` abort with "cannot pull with rebase: You have
+          # unstaged changes" and silently blocked publication for 8 days
+          # (10/22-10/29) while the pipeline itself kept succeeding.
+          git add webapp/public data/factors_manual data/sp600_fallback.csv
           if git diff --cached --quiet; then
             echo "no data changes to commit"
           else
             git commit -m "Daily data refresh $(date -u +%Y-%m-%d)"
-            # Rebase in case a human pushed while the pipeline was running.
+            # Any remaining working-tree noise would also abort the rebase,
+            # so drop it: everything worth keeping is already committed above.
+            git checkout -- . 2>/dev/null || true
+            git clean -fd data 2>/dev/null || true
+            # Rebase in case a human pushed while the pipeline was running,
+            # then push; retry once if we lost a race to another writer.
             git pull --rebase origin main
-            git push origin main
+            git push origin main || {
+              echo "push rejected, retrying after rebase"
+              git pull --rebase origin main && git push origin main
+            }
             echo "pushed — Vercel git integration deploys this automatically"
           fi
 
