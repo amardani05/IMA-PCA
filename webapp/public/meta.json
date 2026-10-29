@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-29T15:21:21.893331Z",
+  "generated_at": "2026-10-29T17:31:30.042512Z",
   "universe_size": 605,
   "n_portfolio": 20,
   "financials_count": 161,
@@ -8,16 +8,16 @@
   "pca": {
     "n_components": 4,
     "variance_explained": [
-      0.14584728212061973,
-      0.12685613366860546,
-      0.10882047555394361,
-      0.09039246643765604
+      0.14581233154754403,
+      0.12687699775834715,
+      0.10884224292533597,
+      0.09039128980907137
     ],
     "cumulative_variance": [
-      0.14584728212061973,
-      0.2727034157892252,
-      0.3815238913431688,
-      0.4719163577808248
+      0.14581233154754403,
+      0.2726893293058912,
+      0.38153157223122713,
+      0.4719228620402985
     ],
     "pc_labels": {
       "PC1": "Valuation Stress",
@@ -28,16 +28,16 @@
   },
   "clustering": {
     "k": 3,
-    "silhouette": 0.3206528223889905,
+    "silhouette": 0.3211895817426945,
     "style_labels": {
-      "0": "Core",
-      "1": "High-Multiple Growth",
-      "2": "Balance-Sheet Stress"
+      "0": "Balance-Sheet Stress",
+      "1": "Core",
+      "2": "High-Multiple Growth"
     },
     "risk_rank": {
-      "0": 0,
-      "1": 1,
-      "2": 2
+      "1": 0,
+      "2": 1,
+      "0": 2
     }
   },
   "tier_order": [
@@ -62,7 +62,7 @@
   },
   "data_freshness": {
     "prices": {
-      "updated_at": "2026-10-29T15:10:57.104825Z"
+      "updated_at": "2026-10-29T17:29:54.976077Z"
     },
     "fundamentals": {
       "updated_at": "2026-10-29T15:19:16.926239Z"
