@@ -32,14 +32,18 @@ from pathlib import Path
 # -----------------------------------------------------------------------------
 # Current IMA portfolio (long-only S&P 600 sleeve)
 # -----------------------------------------------------------------------------
-# Updated 2026-03-24 from "IMA Portfolio.csv" — Allocation of Total column,
-# 20 positions, ex-cash (3.06% FEDXX cash buffer not modeled here).
+# Updated 2026-10-29 from "IMA Portfolio.xlsx" (units last updated 2026-10-14)
+# — the Portfolio sheet's "Allocation" column (actual current weights, not
+# targets), 20 positions, ex-cash. The 0.42% FEDXX cash buffer is not
+# modeled here, so these sum to ~99.6% and are renormalized where needed.
+# Changes from the 2026-03-24 sleeve: OUT TDS, CRGY, DOCN, MTRN;
+# IN QNST, SM, RAL, CENX.
 PORTFOLIO: dict[str, float] = {
-    "TDS":  0.0368, "PRDO": 0.0397, "MCRI": 0.0491, "CVCO": 0.0397,
-    "UNFI": 0.0212, "CRGY": 0.0541, "AX":   0.0677, "PFBC": 0.0523,
-    "ENVA": 0.0653, "NEOG": 0.0439, "KRYS": 0.0526, "FSS":  0.0578,
-    "GTES": 0.0525, "MYRG": 0.0711, "DOCN": 0.0566, "KLIC": 0.0385,
-    "VIAV": 0.0424, "MTRN": 0.0586, "CTRE": 0.0550, "AVA":  0.0142,
+    "QNST":  0.0335, "PRDO":  0.0444, "MCRI":  0.0445, "CVCO":  0.0464,
+    "UNFI":  0.0366, "SM":    0.0672, "AX":    0.0646, "PFBC":  0.0695,
+    "ENVA":  0.0530, "NEOG":  0.0565, "KRYS":  0.0518, "FSS":   0.0590,
+    "GTES":  0.0599, "MYRG":  0.0594, "RAL":   0.0458, "KLIC":  0.0418,
+    "VIAV":  0.0385, "CENX":  0.0465, "CTRE":  0.0613, "AVA":   0.0154,
 }
 
 BENCHMARK_TICKER: str = "IJR"  # iShares S&P Small-Cap 600 ETF
