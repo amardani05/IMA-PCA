@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-11-02T20:54:34.396815Z",
+  "generated_at": "2026-11-03T18:36:42.163557Z",
   "universe_size": 605,
   "n_portfolio": 20,
   "financials_count": 161,
@@ -8,16 +8,16 @@
   "pca": {
     "n_components": 4,
     "variance_explained": [
-      0.14789199061774183,
-      0.12665229378151424,
-      0.10473960694889123,
-      0.08927540996304173
+      0.15359952743810912,
+      0.12735350689053102,
+      0.10202089553819074,
+      0.08609399919950257
     ],
     "cumulative_variance": [
-      0.14789199061774183,
-      0.27454428439925604,
-      0.3792838913481473,
-      0.468559301311189
+      0.15359952743810912,
+      0.28095303432864016,
+      0.3829739298668309,
+      0.46906792906633343
     ],
     "pc_labels": {
       "PC1": "Valuation Stress",
@@ -28,16 +28,16 @@
   },
   "clustering": {
     "k": 3,
-    "silhouette": 0.3225362565476233,
+    "silhouette": 0.3337759618354089,
     "style_labels": {
-      "0": "High-Multiple Growth",
-      "1": "Balance-Sheet Stress",
-      "2": "Core"
+      "0": "Core",
+      "1": "Core (2)",
+      "2": "Crowded / Volatile"
     },
     "risk_rank": {
-      "2": 0,
+      "1": 0,
       "0": 1,
-      "1": 2
+      "2": 2
     }
   },
   "tier_order": [
@@ -51,18 +51,18 @@
     "Elevated": "#b3001b"
   },
   "style_order": [
+    "Core (2)",
     "Core",
-    "High-Multiple Growth",
-    "Balance-Sheet Stress"
+    "Crowded / Volatile"
   ],
   "style_colors": {
-    "Core": "#4a7fb5",
-    "High-Multiple Growth": "#8a63bf",
-    "Balance-Sheet Stress": "#c05621"
+    "Core (2)": "#4a7fb5",
+    "Core": "#8a63bf",
+    "Crowded / Volatile": "#c05621"
   },
   "data_freshness": {
     "prices": {
-      "updated_at": "2026-11-02T20:53:00.705974Z"
+      "updated_at": "2026-11-03T18:34:54.190020Z"
     },
     "fundamentals": {
       "updated_at": "2026-10-29T15:19:16.926239Z"
