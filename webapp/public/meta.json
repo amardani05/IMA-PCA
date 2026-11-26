@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-11-25T20:37:45.360673Z",
+  "generated_at": "2026-11-26T20:24:47.688772Z",
   "universe_size": 605,
   "n_portfolio": 20,
   "financials_count": 161,
@@ -8,16 +8,16 @@
   "pca": {
     "n_components": 4,
     "variance_explained": [
-      0.1565862635441763,
-      0.12013281028429228,
-      0.1121655680623635,
-      0.0950116548207315
+      0.15609013192326346,
+      0.12202024835542288,
+      0.11204478520492664,
+      0.0947188940348318
     ],
     "cumulative_variance": [
-      0.1565862635441763,
-      0.27671907382846855,
-      0.38888464189083205,
-      0.48389629671156353
+      0.15609013192326346,
+      0.27811038027868634,
+      0.39015516548361295,
+      0.48487405951844476
     ],
     "pc_labels": {
       "PC1": "Valuation Stress",
@@ -28,16 +28,16 @@
   },
   "clustering": {
     "k": 3,
-    "silhouette": 0.32728944183700137,
+    "silhouette": 0.3265409208789866,
     "style_labels": {
-      "0": "Core",
-      "1": "Core (2)",
-      "2": "Crowded / Volatile"
+      "0": "Crowded / Volatile",
+      "1": "Crowded / Volatile (2)",
+      "2": "Core"
     },
     "risk_rank": {
-      "0": 0,
+      "2": 0,
       "1": 1,
-      "2": 2
+      "0": 2
     }
   },
   "tier_order": [
@@ -52,17 +52,17 @@
   },
   "style_order": [
     "Core",
-    "Core (2)",
+    "Crowded / Volatile (2)",
     "Crowded / Volatile"
   ],
   "style_colors": {
     "Core": "#4a7fb5",
-    "Core (2)": "#8a63bf",
+    "Crowded / Volatile (2)": "#8a63bf",
     "Crowded / Volatile": "#c05621"
   },
   "data_freshness": {
     "prices": {
-      "updated_at": "2026-11-25T20:35:54.530738Z"
+      "updated_at": "2026-11-26T20:22:12.480049Z"
     },
     "fundamentals": {
       "updated_at": "2026-11-21T18:18:19.673381Z"
